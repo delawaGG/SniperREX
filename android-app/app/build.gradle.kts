@@ -15,8 +15,8 @@ android {
         applicationId = "com.sniperrex.app"
         minSdk = 26
         targetSdk = 34
-        versionCode = 11
-        versionName = "0.1.2"
+        versionCode = 12
+        versionName = "0.1.3"
         // Base URL backend. Kosongkan API key: user mengisi sendiri di Settings.
         buildConfigField("String", "BASE_URL", "\"http://10.0.2.2:8000/\"")
     }

@@ -1,7 +1,6 @@
 package com.sniperrex.app.presentation.components
 
 import androidx.compose.foundation.Canvas
-import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -35,11 +34,9 @@ import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import com.sniperrex.app.R
 import com.sniperrex.app.presentation.theme.BorderGray
 import com.sniperrex.app.presentation.theme.CosmicDark
 import com.sniperrex.app.presentation.theme.CyberAqua
@@ -132,11 +129,7 @@ fun CyberTopBar(
                     .padding(horizontal = 10.dp),
             )
         } else {
-            Image(
-                painter = painterResource(R.drawable.logo_sniperrex),
-                contentDescription = null,
-                modifier = Modifier.size(34.dp).clip(RoundedCornerShape(10.dp)),
-            )
+            LogoMark(modifier = Modifier.size(34.dp).clip(RoundedCornerShape(10.dp)))
         }
         Spacer(Modifier.width(10.dp))
         Column(Modifier.weight(1f)) {
