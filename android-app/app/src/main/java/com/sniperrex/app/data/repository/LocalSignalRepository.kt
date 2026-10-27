@@ -7,13 +7,17 @@ import com.sniperrex.app.data.local.SettingsStore
 import com.sniperrex.app.data.local.SignalDao
 import com.sniperrex.app.data.local.SignalEntity
 import com.sniperrex.app.data.remote.AiGateway
+import com.sniperrex.app.data.worker.ScanConfig
 import com.sniperrex.app.data.remote.TwelveDataApi
 import com.sniperrex.app.domain.engine.AnalysisEngine
 import com.sniperrex.app.domain.engine.Candle
+import com.sniperrex.app.domain.engine.Indicators
 import com.sniperrex.app.domain.engine.Intervals
 import com.sniperrex.app.domain.model.AiVerdict
 import com.sniperrex.app.domain.model.CoreStrategy
 import com.sniperrex.app.domain.model.Direction
+import com.sniperrex.app.domain.model.MarketPulse
+import com.sniperrex.app.domain.model.PulseState
 import com.sniperrex.app.domain.model.PairInfo
 import com.sniperrex.app.domain.model.Pairs
 import com.sniperrex.app.domain.model.ScanParams
@@ -22,6 +26,7 @@ import com.sniperrex.app.domain.model.Signal
 import com.sniperrex.app.domain.model.SignalStatus
 import com.sniperrex.app.domain.model.Verdict
 import com.sniperrex.app.domain.repository.SignalRepository
+import com.sniperrex.app.domain.repository.SweepReport
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.map
@@ -170,6 +175,126 @@ class LocalSignalRepository @Inject constructor(
         runCatching { ai.ping(creds.aiKey, baseUrl) }
             .fold({ true to it }, { false to (it.message ?: "gagal") })
     }
+
+
+
+    // ---------------- sweep multi-strategi ----------------
+
+    /**
+     * Satu fetch per (pair, timeframe) lalu jalankan semua strategi di memori.
+     * Hasil dibatasi: maksimum 1 signal per pair+timeframe+strategi per bar
+     * (dedupe lewat DAO) supaya journal tidak banjir duplikat tiap 15 menit.
+     */
+    override suspend fun sweep(): SweepReport = withContext(Dispatchers.IO) {
+        val key = settings.current().twelveKey
+        if (key.isBlank()) return@withContext SweepReport(0, emptyList(), 0, "API key belum diisi")
+
+        val pairs = ScanConfig.ALL_PAIRS
+        val timeframes = listOf("M15", "H1")
+        val strategies = listOf(
+            CoreStrategy.FVG,
+            CoreStrategy.ORDER_BLOCK_BOS,
+            CoreStrategy.TREND_STRUCTURE,
+            CoreStrategy.EMA_CROSS,
+            CoreStrategy.MACD_CROSS,
+        )
+        val confirmations = listOf("RSI", "ATR", "OB")
+        val intervalMs = 15 * 60_000L
+
+        val found = mutableListOf<Signal>()
+        var scanned = 0
+        var skipped = 0
+
+        for (pair in pairs) {
+            val info = Pairs.of(pair) ?: continue
+            for (tf in timeframes) {
+                val candles = fetch(info, tf, 300)
+                if (candles == null || candles.size < 60) {
+                    skipped++
+                    continue
+                }
+                val htf = fetch(info, "M45", 200)
+                for (strategy in strategies) {
+                    scanned++
+                    val outcome = runCatching {
+                        engine.analyse(
+                            info = info,
+                            timeframe = tf,
+                            strategy = strategy,
+                            confirmations = confirmations,
+                            candles = candles,
+                            htfCandles = htf,
+                            htfTimeframe = "M45",
+                        )
+                    }.getOrNull()
+                    val signal = outcome?.signal ?: continue
+
+                    // Dedupe: jangan simpan setup sama berulang dalam satu bar.
+                    val since = System.currentTimeMillis() - intervalMs
+                    val duplicates = dao.countRecent(pair, tf, strategy.name, since)
+                    if (duplicates > 0) {
+                        skipped++
+                        continue
+                    }
+                    dao.upsert(toEntity(signal))
+                    found += signal
+                }
+            }
+        }
+
+        val message = when {
+            found.isNotEmpty() -> "${found.size} setup baru dari $scanned evaluasi"
+            scanned == 0 -> "data tidak tersedia — cek key atau kuota"
+            else -> "$scanned evaluasi, tidak ada setup lolos gate"
+        }
+        SweepReport(scanned = scanned, found = found, skipped = skipped, message = message)
+    }
+
+    // ---------------- chart & radar ----------------
+
+    override suspend fun candles(pair: String, timeframe: String, limit: Int): List<Candle> =
+        withContext(Dispatchers.IO) {
+            val info = Pairs.of(pair) ?: return@withContext emptyList()
+            if (settings.current().twelveKey.isBlank()) return@withContext emptyList()
+            fetch(info, timeframe, limit).orEmpty()
+        }
+
+    override suspend fun pulses(pairs: List<String>, timeframe: String): List<MarketPulse> =
+        withContext(Dispatchers.IO) {
+            val key = settings.current().twelveKey
+            if (key.isBlank()) return@withContext emptyList()
+            pairs.mapNotNull { symbol ->
+                val info = Pairs.of(symbol) ?: return@mapNotNull null
+                val series = fetch(info, timeframe, 120) ?: return@mapNotNull null
+                if (series.size < 60) return@mapNotNull null
+                val closes = DoubleArray(series.size) { series[it].close }
+                val rsi = Indicators.rsi(closes).lastOrNull() ?: 50.0
+                val atr = Indicators.atr(series).lastOrNull() ?: 0.0
+                val emaFast = Indicators.ema(closes, 21).lastOrNull() ?: closes.last()
+                val emaSlow = Indicators.ema(closes, 55).lastOrNull() ?: closes.last()
+                val last = series.last().close
+                val prev = series[maxOf(0, series.size - 5)].close
+                val changePct = if (prev > 0) (last - prev) / prev * 100.0 else 0.0
+                val atrPct = if (last > 0) atr / last * 100.0 else 0.0
+                val bias = if (emaFast > emaSlow) "BULLISH" else "BEARISH"
+                val state = when {
+                    rsi >= 72 || rsi <= 28 -> PulseState.EXHAUSTED
+                    atrPct < 0.05 -> PulseState.COMPRESSED
+                    bias == "BULLISH" -> PulseState.TRENDING_UP
+                    else -> PulseState.TRENDING_DOWN
+                }
+                MarketPulse(
+                    pair = info.symbol,
+                    price = last,
+                    changePct = changePct,
+                    rsi = rsi,
+                    atr = atr,
+                    bias = bias,
+                    atrPct = atrPct,
+                    state = state,
+                )
+            }
+        }
 
     // ---------------- mapping ----------------
     private fun toEntity(signal: Signal) = SignalEntity(

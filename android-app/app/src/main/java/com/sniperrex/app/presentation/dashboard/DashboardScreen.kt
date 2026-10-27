@@ -23,20 +23,22 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableStateOf
-import androidx.compose.runtime.remember
-import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import com.sniperrex.app.domain.model.MarketPulse
 import com.sniperrex.app.domain.model.Pairs
+import com.sniperrex.app.domain.model.PulseState
 import com.sniperrex.app.domain.model.Signal
+import com.sniperrex.app.presentation.components.CandleChart
 import com.sniperrex.app.presentation.components.CyberBackground
 import com.sniperrex.app.presentation.components.CyberTopBar
 import com.sniperrex.app.presentation.components.DirectionPill
@@ -54,16 +56,9 @@ import com.sniperrex.app.presentation.theme.CosmicDark
 import com.sniperrex.app.presentation.theme.PanelDark
 import com.sniperrex.app.presentation.theme.TextPrimary
 import com.sniperrex.app.presentation.theme.TextSubtle
-import com.sniperrex.app.ui.TradingViewWidget
 
-/** Simbol TradingView untuk tiap pair internal. */
-private val TV_SYMBOL = mapOf(
-    "XAUUSD" to "OANDA:XAUUSD",
-    "EURUSD" to "OANDA:EURUSD",
-    "GBPUSD" to "OANDA:GBPUSD",
-    "USDJPY" to "OANDA:USDJPY",
-    "BTCUSD" to "BITSTAMP:BTCUSD",
-)
+private val TIMEFRAMES = listOf("M15", "M30", "H1", "H4")
+private val AmberGlow = Color(0xFFFFB020)
 
 @Composable
 fun DashboardScreen(
@@ -74,8 +69,9 @@ fun DashboardScreen(
     viewModel: DashboardViewModel = hiltViewModel(),
 ) {
     val signals by viewModel.signals.collectAsStateWithLifecycle()
-    var selectedPair by remember { mutableStateOf("XAUUSD") }
-    var selectedTf by remember { mutableStateOf("M15") }
+    val chart by viewModel.chart.collectAsStateWithLifecycle()
+    val radar by viewModel.radar.collectAsStateWithLifecycle()
+    val sweep by viewModel.sweep.collectAsStateWithLifecycle()
 
     val longs = signals.count { it.direction.name == "LONG" }
     val avgScore = if (signals.isEmpty()) 0 else signals.sumOf { it.quantScore } / signals.size
@@ -108,7 +104,7 @@ fun DashboardScreen(
                         contentPadding = PaddingValues(vertical = 2.dp),
                     ) {
                         items(Pairs.ALL) { info ->
-                            val active = info.symbol == selectedPair
+                            val active = info.symbol == chart.pair
                             Box(
                                 Modifier
                                     .clip(RoundedCornerShape(10.dp))
@@ -118,7 +114,7 @@ fun DashboardScreen(
                                         if (active) CyberLime else BorderGray,
                                         RoundedCornerShape(10.dp),
                                     )
-                                    .clickable { selectedPair = info.symbol }
+                                    .clickable { viewModel.select(info.symbol) }
                                     .padding(horizontal = 14.dp, vertical = 8.dp),
                             ) {
                                 Text(
@@ -133,7 +129,7 @@ fun DashboardScreen(
                     }
                 }
 
-                // --- chart ---
+                // --- chart native ---
                 item {
                     GlowCard(accent = CyberLime, modifier = Modifier.fillMaxWidth()) {
                         Row(
@@ -141,14 +137,38 @@ fun DashboardScreen(
                             horizontalArrangement = Arrangement.SpaceBetween,
                             verticalAlignment = Alignment.CenterVertically,
                         ) {
-                            Text(
-                                "$selectedPair · $selectedTf", color = CyberLime,
-                                fontFamily = FontFamily.Monospace,
-                                fontWeight = FontWeight.Bold, fontSize = 13.sp,
-                            )
+                            Column {
+                                Row(verticalAlignment = Alignment.CenterVertically) {
+                                    Text(
+                                        chart.pair, color = CyberLime,
+                                        fontFamily = FontFamily.Monospace,
+                                        fontWeight = FontWeight.Bold, fontSize = 14.sp,
+                                    )
+                                    Spacer(Modifier.width(8.dp))
+                                    chart.last?.let { last ->
+                                        Text(
+                                            formatPrice(last.close),
+                                            color = TextPrimary,
+                                            fontFamily = FontFamily.Monospace,
+                                            fontWeight = FontWeight.Bold, fontSize = 14.sp,
+                                        )
+                                    }
+                                    Spacer(Modifier.width(6.dp))
+                                    Text(
+                                        "${if (chart.changePct >= 0) "+" else ""}${"%.2f".format(chart.changePct)}%",
+                                        color = if (chart.changePct >= 0) CyberLime else CyberCrimson,
+                                        fontFamily = FontFamily.Monospace, fontSize = 11.sp,
+                                    )
+                                }
+                                Text(
+                                    "EMA 21 · 55 · candle native",
+                                    color = TextSubtle, fontSize = 9.sp,
+                                    fontFamily = FontFamily.Monospace,
+                                )
+                            }
                             LazyRow(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                                items(listOf("M15", "M30", "H1", "H4")) { tf ->
-                                    val active = tf == selectedTf
+                                items(TIMEFRAMES) { tf ->
+                                    val active = tf == chart.timeframe
                                     Text(
                                         tf,
                                         color = if (active) CyberLime else TextSubtle,
@@ -158,7 +178,7 @@ fun DashboardScreen(
                                         modifier = Modifier
                                             .clip(RoundedCornerShape(6.dp))
                                             .background(if (active) CosmicDark else PanelDark)
-                                            .clickable { selectedTf = tf }
+                                            .clickable { viewModel.selectTimeframe(tf) }
                                             .padding(horizontal = 6.dp, vertical = 3.dp),
                                     )
                                 }
@@ -168,19 +188,81 @@ fun DashboardScreen(
                         Box(
                             Modifier
                                 .fillMaxWidth()
-                                .height(260.dp)
+                                .height(240.dp)
                                 .clip(RoundedCornerShape(12.dp))
+                                .background(CosmicDark)
                                 .border(1.dp, CyberLime.copy(alpha = 0.25f), RoundedCornerShape(12.dp)),
                         ) {
-                            TradingViewWidget(
-                                symbol = TV_SYMBOL[selectedPair] ?: "OANDA:XAUUSD",
-                                intervalMinutes = when (selectedTf) {
-                                    "M30" -> 30
-                                    "H1" -> 60
-                                    "H4" -> 240
-                                    else -> 15
-                                },
-                                modifier = Modifier.fillMaxSize(),
+                            when {
+                                chart.loading && chart.candles.isEmpty() -> CenterHint("memuat candle…")
+                                chart.candles.isEmpty() -> CenterHint(
+                                    chart.error ?: "chart kosong — isi API key di SET lalu buka lagi",
+                                )
+                                else -> CandleChart(
+                                    candles = chart.candles,
+                                    modifier = Modifier.fillMaxSize().padding(4.dp),
+                                )
+                            }
+                        }
+                        if (chart.candles.isNotEmpty()) {
+                            Spacer(Modifier.height(8.dp))
+                            Row(
+                                Modifier.fillMaxWidth().clickable { viewModel.loadCandles() },
+                                horizontalArrangement = Arrangement.Center,
+                            ) {
+                                Text(
+                                    "MUAT ULANG CHART",
+                                    color = CyberAqua, fontSize = 10.sp,
+                                    fontFamily = FontFamily.Monospace, fontWeight = FontWeight.Bold,
+                                )
+                            }
+                        }
+                    }
+                }
+
+                // --- radar market ---
+                item {
+                    GlowCard(accent = CyberAqua, modifier = Modifier.fillMaxWidth()) {
+                        Row(
+                            Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically,
+                        ) {
+                            Text(
+                                "RADAR MARKET",
+                                color = CyberAqua,
+                                fontFamily = FontFamily.Monospace,
+                                fontWeight = FontWeight.Bold, fontSize = 13.sp,
+                            )
+                            Text(
+                                if (radar.loading) "memindai…" else "M15 · ketuk untuk chart",
+                                color = TextSubtle, fontSize = 9.sp,
+                                fontFamily = FontFamily.Monospace,
+                            )
+                        }
+                        Spacer(Modifier.height(8.dp))
+                        if (radar.pulses.isEmpty()) {
+                            Text(
+                                if (radar.loading) "mengambil snapshot pair…"
+                                else "radar kosong — butuh API key aktif",
+                                color = TextSubtle, fontSize = 11.sp,
+                            )
+                        } else {
+                            radar.pulses.forEach { pulse ->
+                                PulseRow(pulse) {
+                                    viewModel.select(pulse.pair)
+                                }
+                            }
+                        }
+                        Spacer(Modifier.height(6.dp))
+                        Row(
+                            Modifier.fillMaxWidth().clickable { viewModel.refreshRadar() },
+                            horizontalArrangement = Arrangement.Center,
+                        ) {
+                            Text(
+                                "SEGARKAN RADAR",
+                                color = CyberAqua, fontSize = 10.sp,
+                                fontFamily = FontFamily.Monospace, fontWeight = FontWeight.Bold,
                             )
                         }
                     }
@@ -224,9 +306,9 @@ fun DashboardScreen(
                             )
                             Spacer(Modifier.height(6.dp))
                             Text(
-                                "1) Isi Twelve Data key di SET.  2) Tekan SCAN.  " +
-                                "3) Engine hanya mengevaluasi bar tertutup terakhir — kalau tidak ada setup, " +
-                                "hasil kosong dan itu benar.",
+                                "Tekan SCAN PASAR di bawah: satu putaran mengevaluasi 5 strategi x " +
+                                "4 pair x 2 timeframe dari data yang sama. Kalau tidak ada setup lolos " +
+                                "gate, hasil kosong dan itu benar.",
                                 color = TextSubtle, fontSize = 12.sp,
                             )
                         }
@@ -248,18 +330,103 @@ fun DashboardScreen(
             }
         }
 
-        Row(
+        Column(
             Modifier
                 .align(Alignment.BottomCenter)
                 .navigationBarsPadding()
                 .padding(horizontal = 16.dp, vertical = 16.dp),
-            horizontalArrangement = Arrangement.spacedBy(10.dp),
         ) {
-            GhostButton("JOURNAL", accent = CyberAqua, modifier = Modifier.height(50.dp)) { onOpenSignals() }
-            Box(Modifier.weight(1f)) {
-                NeonButton("SCAN $selectedPair") { onScan(selectedPair) }
+            sweep.message?.let { msg ->
+                Text(
+                    msg,
+                    color = if (sweep.newSignals > 0) CyberLime else TextSubtle,
+                    fontSize = 11.sp, fontFamily = FontFamily.Monospace,
+                    textAlign = TextAlign.Center,
+                    modifier = Modifier.fillMaxWidth().padding(bottom = 6.dp),
+                )
             }
+            Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                GhostButton("JOURNAL", accent = CyberAqua, modifier = Modifier.height(50.dp)) {
+                    onOpenSignals()
+                }
+                Box(Modifier.weight(1f)) {
+                    NeonButton(
+                        if (sweep.running) "MEMINDAI…" else "SCAN PASAR",
+                        enabled = !sweep.running,
+                    ) { viewModel.runSweep() }
+                }
+            }
+            Spacer(Modifier.height(8.dp))
+            GhostButton(
+                "STRATEGI · ${chart.pair}",
+                accent = CyberLime,
+                modifier = Modifier.fillMaxWidth().height(44.dp),
+            ) { onScan(chart.pair) }
         }
+    }
+}
+
+@Composable
+private fun CenterHint(text: String) {
+    Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+        Text(
+            text,
+            color = TextSubtle, fontSize = 11.sp,
+            fontFamily = FontFamily.Monospace,
+            textAlign = TextAlign.Center,
+            modifier = Modifier.padding(horizontal = 18.dp),
+        )
+    }
+}
+
+@Composable
+private fun PulseRow(pulse: MarketPulse, onClick: () -> Unit) {
+    val accent = when (pulse.state) {
+        PulseState.TRENDING_UP -> CyberLime
+        PulseState.TRENDING_DOWN -> CyberCrimson
+        PulseState.EXHAUSTED -> AmberGlow
+        else -> CyberAqua
+    }
+    Row(
+        Modifier
+            .fillMaxWidth()
+            .clickable(onClick = onClick)
+            .padding(vertical = 6.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Column(Modifier.width(78.dp)) {
+            Text(
+                pulse.pair, color = TextPrimary, fontSize = 12.sp,
+                fontFamily = FontFamily.Monospace, fontWeight = FontWeight.Bold,
+            )
+            Text(
+                "${if (pulse.changePct >= 0) "+" else ""}${"%.2f".format(pulse.changePct)}%",
+                color = if (pulse.changePct >= 0) CyberLime else CyberCrimson,
+                fontSize = 9.sp, fontFamily = FontFamily.Monospace,
+            )
+        }
+        // bar tekanan RSI
+        Box(
+            Modifier
+                .weight(1f)
+                .height(6.dp)
+                .clip(RoundedCornerShape(3.dp))
+                .background(PanelDark),
+        ) {
+            Box(
+                Modifier
+                    .fillMaxWidth(pulse.pressure.toFloat().coerceIn(0.05f, 1f))
+                    .height(6.dp)
+                    .clip(RoundedCornerShape(3.dp))
+                    .background(accent.copy(alpha = 0.8f)),
+            )
+        }
+        Spacer(Modifier.width(10.dp))
+        Text(
+            "RSI ${"%.0f".format(pulse.rsi)}",
+            color = accent, fontSize = 10.sp, fontFamily = FontFamily.Monospace,
+            modifier = Modifier.width(52.dp),
+        )
     }
 }
 
@@ -289,7 +456,7 @@ private fun SignalCard(signal: Signal, onClick: () -> Unit) {
                 Spacer(Modifier.height(6.dp))
                 Row(horizontalArrangement = Arrangement.spacedBy(14.dp)) {
                     Text(
-                        "E ${signal.entry}", color = accent, fontSize = 12.sp,
+                        "E ${formatPrice(signal.entry)}", color = accent, fontSize = 12.sp,
                         fontFamily = FontFamily.Monospace,
                     )
                     Text(
@@ -301,4 +468,10 @@ private fun SignalCard(signal: Signal, onClick: () -> Unit) {
             Text("›", color = TextSubtle, fontSize = 22.sp, fontFamily = FontFamily.Monospace)
         }
     }
+}
+
+internal fun formatPrice(price: Double): String = when {
+    price >= 1000 -> "%.2f".format(price)
+    price >= 100 -> "%.3f".format(price)
+    else -> "%.5f".format(price)
 }

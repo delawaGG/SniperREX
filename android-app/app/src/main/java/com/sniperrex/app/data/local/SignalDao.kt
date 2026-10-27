@@ -27,6 +27,13 @@ interface SignalDao {
     @Query("UPDATE signals SET aiVerdictJson = :json WHERE id = :id")
     suspend fun updateVerdict(id: String, json: String?)
 
+    /** Deteksi duplikat: pair+timeframe+strategi pada jendela waktu yang sama. */
+    @Query(
+        "SELECT COUNT(*) FROM signals WHERE pair = :pair AND timeframe = :timeframe " +
+            "AND coreStrategy = :strategy AND createdAt >= :since"
+    )
+    suspend fun countRecent(pair: String, timeframe: String, strategy: String, since: Long): Int
+
     @Query("DELETE FROM signals WHERE createdAt < :cutoff")
     suspend fun deleteOlderThan(cutoff: Long): Int
 }
