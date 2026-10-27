@@ -1,21 +1,59 @@
 package com.sniperrex.app.presentation.theme
 
-import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Typography
 import androidx.compose.material3.darkColorScheme
-import androidx.compose.material3.lightColorScheme
 import androidx.compose.runtime.Composable
-import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.text.TextStyle
+import androidx.compose.ui.text.font.FontFamily
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.unit.sp
 
-private val Bull = Color(0xFF1B9C62)
-private val Bear = Color(0xFFC0392B)
+private val SniperScheme = darkColorScheme(
+    primary = CyberLime,
+    onPrimary = CosmicDark,
+    secondary = CyberAqua,
+    onSecondary = CosmicDark,
+    tertiary = CyberCrimson,
+    background = CosmicDark,
+    onBackground = TextPrimary,
+    surface = PanelDark,
+    onSurface = TextPrimary,
+    surfaceVariant = PanelElevated,
+    onSurfaceVariant = TextSubtle,
+    outline = BorderGray,
+    error = CyberCrimson,
+)
 
-private val Light = lightColorScheme(primary = Color(0xFF11293B), secondary = Bull, error = Bear)
-private val Dark = darkColorScheme(primary = Color(0xFF9EC5DE), secondary = Bull, error = Bear)
+private val SniperTypography = Typography(
+    displaySmall = TextStyle(
+        fontFamily = FontFamily.Monospace, fontWeight = FontWeight.Bold,
+        fontSize = 28.sp, letterSpacing = 1.sp,
+    ),
+    titleLarge = TextStyle(
+        fontFamily = FontFamily.SansSerif, fontWeight = FontWeight.Bold,
+        fontSize = 20.sp, letterSpacing = 0.5.sp,
+    ),
+    titleMedium = TextStyle(
+        fontFamily = FontFamily.SansSerif, fontWeight = FontWeight.SemiBold,
+        fontSize = 16.sp,
+    ),
+    bodyMedium = TextStyle(
+        fontFamily = FontFamily.SansSerif, fontWeight = FontWeight.Normal,
+        fontSize = 14.sp, lineHeight = 20.sp,
+    ),
+    labelLarge = TextStyle(
+        fontFamily = FontFamily.Monospace, fontWeight = FontWeight.Bold,
+        fontSize = 13.sp, letterSpacing = 1.sp,
+    ),
+    labelSmall = TextStyle(
+        fontFamily = FontFamily.Monospace, fontWeight = FontWeight.Normal,
+        fontSize = 11.sp, letterSpacing = 0.5.sp,
+    ),
+)
 
+/** Selalu gelap — tema neon tidak punya varian terang. */
 @Composable
-fun SniperRexTheme(dark: Boolean = isSystemInDarkTheme(), content: @Composable () -> Unit) {
-    MaterialTheme(colorScheme = if (dark) Dark else Light, content = content)
+fun SniperRexTheme(content: @Composable () -> Unit) {
+    MaterialTheme(colorScheme = SniperScheme, typography = SniperTypography, content = content)
 }
-
-val DirectionColor: Color @Composable get() = MaterialTheme.colorScheme.secondary

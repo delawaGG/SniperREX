@@ -54,7 +54,7 @@ object Indicators {
         for (i in closes.indices) {
             out[i] = when {
                 avgLoss[i] == 0.0 && avgGain[i] > 0 -> 100.0
-                avgLoss[i] == 0.0 && avgGain[i] == 0 -> 50.0
+                avgLoss[i] == 0.0 && avgGain[i] == 0.0 -> 50.0
                 else -> 100.0 - (100.0 / (1.0 + avgGain[i] / avgLoss[i]))
             }
         }
