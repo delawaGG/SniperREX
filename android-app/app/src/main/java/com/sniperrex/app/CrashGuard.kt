@@ -13,11 +13,11 @@ object CrashGuard {
 
     fun file(context: Context): File = File(context.filesDir, FILE_NAME)
 
-    fun install(context: Context) {
+    fun install(context: Context, versionCode: Int) {
         val previous = Thread.getDefaultUncaughtExceptionHandler()
         Thread.setDefaultUncaughtExceptionHandler { thread, error ->
             runCatching {
-                val header = "thread=${thread.name}\ndevice=${android.os.Build.MANUFACTURER} ${android.os.Build.MODEL} " +
+                val header = "v=$versionCode\nthread=${thread.name}\ndevice=${android.os.Build.MANUFACTURER} ${android.os.Build.MODEL} " +
                     "sdk=${android.os.Build.VERSION.SDK_INT}\n\n"
                 file(context).writeText(header + error.stackTraceToString())
             }
@@ -25,9 +25,17 @@ object CrashGuard {
         }
     }
 
-    fun read(context: Context): String? =
-        runCatching { file(context).takeIf { it.exists() }?.readText() }.getOrNull()
-            ?.takeIf { it.isNotBlank() }
+    fun read(context: Context, versionCode: Int): String? {
+        val raw = runCatching { file(context).takeIf { it.exists() }?.readText() }.getOrNull()
+            ?: return null
+        val firstLine = raw.lineSequence().firstOrNull().orEmpty()
+        // Log dari versi lama tidak relevan -> buang.
+        if (firstLine.startsWith("v=") && firstLine != "v=$versionCode") {
+            clear(context)
+            return null
+        }
+        return raw.takeIf { it.isNotBlank() }
+    }
 
     fun clear(context: Context) {
         runCatching { file(context).delete() }

@@ -133,7 +133,7 @@ fun CyberTopBar(
             )
         } else {
             Image(
-                painter = painterResource(R.mipmap.ic_launcher),
+                painter = painterResource(R.drawable.logo_sniperrex),
                 contentDescription = null,
                 modifier = Modifier.size(34.dp).clip(RoundedCornerShape(10.dp)),
             )

@@ -18,7 +18,7 @@ class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
-        val lastCrash = CrashGuard.read(this)
+        val lastCrash = CrashGuard.read(this, BuildConfig.VERSION_CODE)
         setContent {
             SniperRexTheme {
                 var crash by remember { mutableStateOf(lastCrash) }

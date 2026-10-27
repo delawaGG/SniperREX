@@ -34,7 +34,9 @@ fun TradingViewWidget(
     AndroidView(
         modifier = modifier,
         factory = { context ->
-            WebView(context).apply {
+            val web = runCatching { WebView(context) }.getOrNull()
+                ?: return@AndroidView android.view.View(context)
+            web.apply {
                 settings.javaScriptEnabled = true
                 settings.domStorageEnabled = true
                 loadDataWithBaseURL("https://www.tradingview.com", html, "text/html", "utf-8", null)

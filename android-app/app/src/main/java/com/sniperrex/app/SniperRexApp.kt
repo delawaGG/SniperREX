@@ -16,7 +16,7 @@ class SniperRexApp : Application(), Configuration.Provider {
     /** Dipasang sebelum Hilt/WorkManager init agar crash paling awal pun tercatat. */
     override fun attachBaseContext(base: android.content.Context) {
         super.attachBaseContext(base)
-        CrashGuard.install(base)
+        CrashGuard.install(base, BuildConfig.VERSION_CODE)
     }
 
     override fun onCreate() {
