@@ -48,15 +48,13 @@ fun SettingsScreen(
                 .verticalScroll(rememberScrollState()),
             verticalArrangement = Arrangement.spacedBy(12.dp),
         ) {
-            Text("Backend")
-            OutlinedTextField(
-                value = state.backendUrl,
-                onValueChange = viewModel::onBackendUrl,
-                label = { Text("Base URL (mis. http://192.168.1.5:8000/)") },
-                modifier = Modifier.fillMaxWidth(),
-                singleLine = true,
+            Text("Pertama kali pakai")
+            Text(
+                "1. Isi Twelve Data API key (gratis di twelvedata.com).  " +
+                "2. Opsional: AI key untuk pendapat kedua.  " +
+                "3. Tekan Test, lalu Simpan. Semua perhitungan terjadi di HP ini — " +
+                "tidak ada server yang perlu dinyalakan."
             )
-            Text("Kosongkan untuk memakai default build (emulator: 10.0.2.2).")
 
             Divider()
             Text("Twelve Data")

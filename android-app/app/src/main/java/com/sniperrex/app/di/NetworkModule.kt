@@ -2,7 +2,7 @@ package com.sniperrex.app.di
 
 import com.jakewharton.retrofit2.converter.kotlinx.serialization.asConverterFactory
 import com.sniperrex.app.BuildConfig
-import com.sniperrex.app.data.remote.SniperRexApi
+import com.sniperrex.app.data.remote.TwelveDataApi
 import dagger.Module
 import dagger.Provides
 import dagger.hilt.InstallIn
@@ -29,32 +29,26 @@ object NetworkModule {
 
     @Provides
     @Singleton
-    fun provideOkHttp(interceptor: ApiKeyInterceptor): OkHttpClient {
+    fun provideOkHttp(): OkHttpClient {
         val logging = HttpLoggingInterceptor().apply {
-            // Wajib BASIC: level BODY bisa mencatat data sensitif.
+            // BASIC: URL tidak memuat apikey (dikirim sebagai query terpisah & diredact)
             level = if (BuildConfig.DEBUG) HttpLoggingInterceptor.Level.BASIC
                     else HttpLoggingInterceptor.Level.NONE
-            redactHeader("X-Twelve-Key")
-            redactHeader("X-AI-Key")
         }
         return OkHttpClient.Builder()
-            .addInterceptor(interceptor)
             .addInterceptor(logging)
-            .connectTimeout(15, TimeUnit.SECONDS)
-            .readTimeout(45, TimeUnit.SECONDS)
+            .connectTimeout(20, TimeUnit.SECONDS)
+            .readTimeout(60, TimeUnit.SECONDS)
             .build()
     }
 
     @Provides
     @Singleton
-    fun provideRetrofit(client: OkHttpClient, json: Json): Retrofit =
+    fun provideTwelveApi(client: OkHttpClient, json: Json): TwelveDataApi =
         Retrofit.Builder()
-            .baseUrl(BuildConfig.BASE_URL)
+            .baseUrl("https://api.twelvedata.com/")
             .client(client)
             .addConverterFactory(json.asConverterFactory("application/json".toMediaType()))
             .build()
-
-    @Provides
-    @Singleton
-    fun provideApi(retrofit: Retrofit): SniperRexApi = retrofit.create(SniperRexApi::class.java)
+            .create(TwelveDataApi::class.java)
 }

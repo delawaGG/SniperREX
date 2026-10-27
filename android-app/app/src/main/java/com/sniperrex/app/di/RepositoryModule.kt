@@ -1,6 +1,6 @@
 package com.sniperrex.app.di
 
-import com.sniperrex.app.data.repository.SignalRepositoryImpl
+import com.sniperrex.app.data.repository.LocalSignalRepository
 import com.sniperrex.app.domain.repository.SignalRepository
 import dagger.Binds
 import dagger.Module
@@ -13,5 +13,5 @@ import javax.inject.Singleton
 abstract class RepositoryModule {
     @Binds
     @Singleton
-    abstract fun bindSignalRepository(impl: SignalRepositoryImpl): SignalRepository
+    abstract fun bindSignalRepository(impl: LocalSignalRepository): SignalRepository
 }

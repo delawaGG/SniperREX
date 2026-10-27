@@ -46,7 +46,8 @@ data class AiVerdict(
     val verdict: Verdict,
     val reasoning: String,
     val risks: List<String>,
-    val finalDecision: Verdict?,
+    val finalDecision: Verdict? = null,
+    val finalReasons: List<String> = emptyList(),
 )
 
 data class ScanParams(
