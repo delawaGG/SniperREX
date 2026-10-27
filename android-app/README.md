@@ -76,6 +76,14 @@ Pagar yang dipasang:
 - `SettingsViewModel` memakai helper `update` lokal — sebaiknya ganti ke
   `kotlinx.coroutines.flow.update` saat build pertama.
 
+## Base URL backend (runtime)
+
+Field **Backend** di SettingsScreen mengubah tujuan request tanpa rebuild
+(`BackendUrlProvider` + rewrite host di `ApiKeyInterceptor`). Default build:
+`http://10.0.2.2:8000/` (emulator). Perangkat nyata: isi IP LAN mesin backend,
+mis. `http://192.168.1.5:8000/`. Kalau backend jalan di HP yang sama (PRoot),
+pakai `http://127.0.0.1:8000/`.
+
 ## Build
 
 ```bash

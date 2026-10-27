@@ -11,6 +11,7 @@ import javax.inject.Inject
 import javax.inject.Singleton
 
 data class Credentials(
+    val backendUrl: String = "",
     val twelveKey: String = "",
     val aiKey: String = "",
     val aiBaseUrl: String = "",
@@ -29,10 +30,12 @@ class SettingsStore @Inject constructor(
         val aiModel = stringPreferencesKey("ai_model")
         val disclaimerSeen = stringPreferencesKey("disclaimer_seen")
         val autoScan = stringPreferencesKey("auto_scan")
+        val backendUrl = stringPreferencesKey("backend_url")
     }
 
     val credentials: Flow<Credentials> = dataStore.data.map { prefs ->
         Credentials(
+            backendUrl = prefs[Keys.backendUrl].orEmpty(),
             twelveKey = prefs[Keys.twelve].orEmpty(),
             aiKey = prefs[Keys.aiKey].orEmpty(),
             aiBaseUrl = prefs[Keys.aiBase].orEmpty(),
@@ -54,6 +57,7 @@ class SettingsStore @Inject constructor(
 
     suspend fun save(credentials: Credentials) {
         dataStore.edit { prefs ->
+            prefs[Keys.backendUrl] = credentials.backendUrl
             prefs[Keys.twelve] = credentials.twelveKey
             prefs[Keys.aiKey] = credentials.aiKey
             prefs[Keys.aiBase] = credentials.aiBaseUrl

@@ -48,6 +48,17 @@ fun SettingsScreen(
                 .verticalScroll(rememberScrollState()),
             verticalArrangement = Arrangement.spacedBy(12.dp),
         ) {
+            Text("Backend")
+            OutlinedTextField(
+                value = state.backendUrl,
+                onValueChange = viewModel::onBackendUrl,
+                label = { Text("Base URL (mis. http://192.168.1.5:8000/)") },
+                modifier = Modifier.fillMaxWidth(),
+                singleLine = true,
+            )
+            Text("Kosongkan untuk memakai default build (emulator: 10.0.2.2).")
+
+            Divider()
             Text("Twelve Data")
             OutlinedTextField(
                 value = state.twelveKey,

@@ -15,6 +15,7 @@ import kotlinx.coroutines.launch
 import javax.inject.Inject
 
 data class SettingsUi(
+    val backendUrl: String = "",
     val twelveKey: String = "",
     val aiKey: String = "",
     val aiBaseUrl: String = "",
@@ -45,6 +46,7 @@ class SettingsViewModel @Inject constructor(
         viewModelScope.launch {
             observeCredentials().collect { c ->
                 _state.value = _state.value.copy(
+                    backendUrl = c.backendUrl,
                     twelveKey = c.twelveKey, aiKey = c.aiKey,
                     aiBaseUrl = c.aiBaseUrl, aiModel = c.aiModel,
                 )
@@ -52,6 +54,7 @@ class SettingsViewModel @Inject constructor(
         }
     }
 
+    fun onBackendUrl(value: String) = _state.update { it.copy(backendUrl = value) }
     fun onTwelveKey(value: String) = _state.update { it.copy(twelveKey = value) }
     fun onAiKey(value: String) = _state.update { it.copy(aiKey = value) }
     fun onAiBase(value: String) = _state.update { it.copy(aiBaseUrl = value) }
@@ -70,7 +73,15 @@ class SettingsViewModel @Inject constructor(
     fun save() = viewModelScope.launch {
         _state.update { it.copy(busy = true) }
         val c = _state.value
-        saveCredentials(Credentials(c.twelveKey.trim(), c.aiKey.trim(), c.aiBaseUrl.trim(), c.aiModel.trim()))
+        saveCredentials(
+            Credentials(
+                backendUrl = c.backendUrl.trim(),
+                twelveKey = c.twelveKey.trim(),
+                aiKey = c.aiKey.trim(),
+                aiBaseUrl = c.aiBaseUrl.trim(),
+                aiModel = c.aiModel.trim(),
+            )
+        )
         _state.update { it.copy(busy = false, twelveStatus = "Kredensial disimpan di perangkat") }
     }
 

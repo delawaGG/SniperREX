@@ -9,6 +9,7 @@ import com.sniperrex.app.data.remote.SignalDto
 import com.sniperrex.app.data.remote.SniperRexApi
 import com.sniperrex.app.data.remote.StatusUpdateDto
 import com.sniperrex.app.di.ApiKeyProvider
+import com.sniperrex.app.di.BackendUrlProvider
 import com.sniperrex.app.domain.model.AiVerdict
 import com.sniperrex.app.domain.model.CoreStrategy
 import com.sniperrex.app.domain.model.Direction
@@ -36,12 +37,14 @@ class SignalRepositoryImpl @Inject constructor(
     private val dao: SignalDao,
     private val settings: SettingsStore,
     private val keyProvider: ApiKeyProvider,
+    private val backendUrl: BackendUrlProvider,
     private val json: Json,
 ) : SignalRepository {
 
     /** Sinkronkan kredensial user ke interceptor sebelum request. */
     private suspend fun syncCredentials() {
         val creds = settings.current()
+        backendUrl.set(creds.backendUrl)
         keyProvider.setTwelveKey(creds.twelveKey)
         keyProvider.setAi(creds.aiKey, creds.aiBaseUrl, creds.aiModel)
     }
