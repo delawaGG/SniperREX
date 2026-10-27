@@ -222,7 +222,6 @@ fun DashboardScreen(
                                 )
                             }
                         }
-                        }
                         if (chart.candles.isNotEmpty()) {
                             Spacer(Modifier.height(8.dp))
                             Row(
@@ -230,8 +229,9 @@ fun DashboardScreen(
                                 horizontalArrangement = Arrangement.Center,
                             ) {
                                 Text(
-                                    "MUAT ULANG CHART",
-                                    color = CyberAqua, fontSize = 10.sp,
+                                    if (chart.loading) "MEMUAT…" else "MUAT ULANG CHART",
+                                    color = if (chart.loading) TextSubtle else CyberAqua,
+                                    fontSize = 10.sp,
                                     fontFamily = FontFamily.Monospace, fontWeight = FontWeight.Bold,
                                 )
                             }
