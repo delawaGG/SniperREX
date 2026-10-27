@@ -65,6 +65,17 @@ jobs:
           path: android-app/app/build/outputs/apk/debug/*.apk
           if-no-files-found: warn
 
+      - name: Publikasikan APK sebagai Release
+        if: success()
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: build-${{ github.run_number }}
+          name: SniperRex build ${{ github.run_number }}
+          body: |
+            APK debug otomatis dari commit ${{ github.sha }}.
+            Signal only. Not financial advice.
+          files: android-app/app/build/outputs/apk/debug/app-debug.apk
+
       # Log ditulis balik ke repo supaya error bisa dibaca tanpa akses token.
       - name: Commit log kegagalan
         if: failure()
