@@ -1,5 +1,5 @@
-44:e: file:///home/runner/work/SniperREX/SniperREX/android-app/app/src/main/java/com/sniperrex/app/domain/engine/Indicators.kt:57:38 Operator '==' cannot be applied to 'kotlin.Double' and 'kotlin.Int'.
-45-gradle/actions: Writing build results to /home/runner/work/_temp/.gradle-actions/build-results/__run_2-1793105424207.json
+44:e: file:///home/runner/work/SniperREX/SniperREX/android-app/app/src/main/java/com/sniperrex/app/presentation/settings/SettingsViewModel.kt:123:40 Unresolved reference 'copy'.
+45-gradle/actions: Writing build results to /home/runner/work/_temp/.gradle-actions/build-results/__run_2-1793112702386.json
 46-
 47:FAILURE: Build failed with an exception.
 48-
