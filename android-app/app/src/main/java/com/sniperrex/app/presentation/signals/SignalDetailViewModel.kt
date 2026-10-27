@@ -18,7 +18,7 @@ import javax.inject.Inject
 
 @HiltViewModel
 class SignalDetailViewModel @Inject constructor(
-    observeSignal: ObserveSignalUseCase,
+    private val observeSignal: ObserveSignalUseCase,
     private val analyzeSignal: AnalyzeSignalUseCase,
     private val updateStatus: UpdateSignalStatusUseCase,
 ) : ViewModel() {

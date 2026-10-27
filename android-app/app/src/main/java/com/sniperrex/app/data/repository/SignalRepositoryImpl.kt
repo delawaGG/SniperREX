@@ -20,6 +20,11 @@ import com.sniperrex.app.domain.model.Verdict
 import com.sniperrex.app.domain.repository.SignalRepository
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.map
+import com.sniperrex.app.data.remote.AiVerdictDto
+import com.sniperrex.app.data.remote.ConfluenceDto
+import com.sniperrex.app.data.remote.ContextDto
+import kotlinx.serialization.builtins.ListSerializer
+import kotlinx.serialization.builtins.serializer
 import kotlinx.serialization.json.Json
 import java.time.Instant
 import javax.inject.Inject
@@ -72,7 +77,7 @@ class SignalRepositoryImpl @Inject constructor(
     override suspend fun analyze(signalId: String): AiVerdict {
         syncCredentials()
         val dto = api.analyze(AiAnalyzeDto(signalId))
-        dao.updateVerdict(signalId, json.encodeToString(dto))
+        dao.updateVerdict(signalId, json.encodeToString(AiVerdictDto.serializer(), dto))
         return dto.toDomain()
     }
 
@@ -123,23 +128,23 @@ class SignalRepositoryImpl @Inject constructor(
         direction = direction,
         coreStrategy = coreStrategy,
         structureEvent = structureEvent,
-        confirmations = json.encodeToString(confirmations),
+        confirmations = json.encodeToString(ListSerializer(String.serializer()), confirmations),
         entry = entry,
         stopLoss = stopLoss,
-        takeProfits = json.encodeToString(takeProfit),
+        takeProfits = json.encodeToString(ListSerializer(Double.serializer()), takeProfit),
         riskReward = riskReward,
         quantScore = quantScore,
         status = status,
-        confluenceJson = json.encodeToString(confluence),
-        contextJson = json.encodeToString(context),
+        confluenceJson = json.encodeToString(ConfluenceDto.serializer(), confluence),
+        contextJson = json.encodeToString(ContextDto.serializer(), context),
         aiVerdictJson = null,
         createdAt = runCatching { Instant.parse(createdAt).toEpochMilli() }.getOrDefault(0L),
         syncedAt = System.currentTimeMillis(),
     )
 
     private fun SignalEntity.toDomain(): Signal {
-        val confluence = runCatching { json.decodeFromString<com.sniperrex.app.data.remote.ConfluenceDto>(confluenceJson) }.getOrNull()
-        val context = runCatching { json.decodeFromString<com.sniperrex.app.data.remote.ContextDto>(contextJson) }.getOrNull()
+        val confluence = runCatching { json.decodeFromString(ConfluenceDto.serializer(), confluenceJson) }.getOrNull()
+        val context = runCatching { json.decodeFromString(ContextDto.serializer(), contextJson) }.getOrNull()
         return Signal(
             id = id,
             pair = pair,
@@ -147,10 +152,10 @@ class SignalRepositoryImpl @Inject constructor(
             direction = Direction.valueOf(direction),
             coreStrategy = CoreStrategy.valueOf(coreStrategy),
             structureEvent = structureEvent,
-            confirmations = runCatching { json.decodeFromString<List<String>>(confirmations) }.getOrDefault(emptyList()),
+            confirmations = runCatching { json.decodeFromString(ListSerializer(String.serializer()), confirmations) }.getOrDefault(emptyList()),
             entry = entry,
             stopLoss = stopLoss,
-            takeProfits = runCatching { json.decodeFromString<List<Double>>(takeProfits) }.getOrDefault(emptyList()),
+            takeProfits = runCatching { json.decodeFromString(ListSerializer(Double.serializer()), takeProfits) }.getOrDefault(emptyList()),
             riskReward = riskReward,
             quantScore = quantScore,
             status = runCatching { SignalStatus.valueOf(status) }.getOrDefault(SignalStatus.WAIT),
@@ -163,14 +168,14 @@ class SignalRepositoryImpl @Inject constructor(
             createdAtEpochMs = createdAt,
             aiVerdict = aiVerdictJson?.let { raw ->
                 runCatching {
-                    val dto = json.decodeFromString<com.sniperrex.app.data.remote.AiVerdictDto>(raw)
+                    val dto = json.decodeFromString(AiVerdictDto.serializer(), raw)
                     dto.toDomain()
                 }.getOrNull()
             },
         )
     }
 
-    private fun com.sniperrex.app.data.remote.AiVerdictDto.toDomain(): AiVerdict = AiVerdict(
+    private fun AiVerdictDto.toDomain(): AiVerdict = AiVerdict(
         aiScore = aiScore,
         verdict = runCatching { Verdict.valueOf(verdict) }.getOrDefault(Verdict.WAIT),
         reasoning = reasoning,
