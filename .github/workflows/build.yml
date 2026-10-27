@@ -5,6 +5,9 @@ on:
     branches: [main]
   workflow_dispatch:
 
+permissions:
+  contents: write
+
 jobs:
   backend-tests:
     runs-on: ubuntu-latest
@@ -27,8 +30,6 @@ jobs:
   android-debug-apk:
     runs-on: ubuntu-latest
     env:
-      # Runner GitHub sudah punya Android SDK; tidak perlu action setup-android
-      # (action itu yang gagal pada run #1).
       ANDROID_SDK_ROOT: /usr/local/lib/android/sdk
       ANDROID_HOME: /usr/local/lib/android/sdk
     steps:
@@ -38,13 +39,6 @@ jobs:
         with:
           distribution: temurin
           java-version: "17"
-
-      - name: Diagnosa SDK
-        run: |
-          echo "ANDROID_HOME=$ANDROID_HOME"
-          ls "$ANDROID_HOME" || true
-          ls "$ANDROID_HOME/platforms" || true
-          ls "$ANDROID_HOME/build-tools" || true
 
       - name: Terima lisensi SDK
         run: |
@@ -57,7 +51,11 @@ jobs:
 
       - name: Build debug APK
         working-directory: android-app
-        run: gradle :app:assembleDebug --no-daemon --stacktrace
+        run: |
+          mkdir -p "$GITHUB_WORKSPACE/ci-logs"
+          set -o pipefail
+          gradle :app:assembleDebug --no-daemon --stacktrace \
+            2>&1 | tee "$GITHUB_WORKSPACE/ci-logs/last-build.log"
 
       - name: Upload APK
         if: always()
@@ -67,12 +65,16 @@ jobs:
           path: android-app/app/build/outputs/apk/debug/*.apk
           if-no-files-found: warn
 
-      - name: Upload build reports
+      # Log ditulis balik ke repo supaya error bisa dibaca tanpa akses token.
+      - name: Commit log kegagalan
         if: failure()
-        uses: actions/upload-artifact@v4
-        with:
-          name: build-reports
-          path: |
-            android-app/app/build/reports/**
-            android-app/build/reports/**
-          if-no-files-found: ignore
+        run: |
+          cd "$GITHUB_WORKSPACE"
+          mkdir -p ci-logs
+          grep -n -A 6 -E "e: file:|error:|FAILURE:|What went wrong" ci-logs/last-build.log \
+            | tail -c 40000 > ci-logs/last-failure.log || true
+          git config user.name "sniperrex-ci"
+          git config user.email "ci@users.noreply.github.com"
+          git add ci-logs/last-failure.log
+          git commit -m "ci: log kegagalan build [skip ci]" || true
+          git push || true
