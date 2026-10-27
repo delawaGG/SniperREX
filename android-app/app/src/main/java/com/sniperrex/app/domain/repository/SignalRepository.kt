@@ -1,6 +1,6 @@
 package com.sniperrex.app.domain.repository
 
-import com.sniperrex.app.domain.engine.Candle
+import com.sniperrex.app.domain.model.ChartData
 import com.sniperrex.app.domain.model.AiVerdict
 import com.sniperrex.app.domain.model.MarketPulse
 import com.sniperrex.app.domain.model.ScanParams
@@ -19,8 +19,12 @@ interface SignalRepository {
     suspend fun testTwelve(): Pair<Boolean, String>
     suspend fun testAi(): Pair<Boolean, String>
 
-    /** Candle untuk chart native. Kosong bila key belum diisi atau permintaan gagal. */
-    suspend fun candles(pair: String, timeframe: String, limit: Int = 160): List<Candle>
+    /**
+     * Candle untuk chart native. Selalu berusaha mengembalikan sesuatu:
+     * bila jaringan gagal, data cache dipakai dan [ChartData.stale] = true,
+     * sehingga chart tidak pernah mendadak kosong.
+     */
+    suspend fun candles(pair: String, timeframe: String, limit: Int = 160): ChartData
 
     /** Radar market: snapshot ringan tiap pair (1 request per pair). */
     suspend fun pulses(pairs: List<String>, timeframe: String = "M15"): List<MarketPulse>

@@ -8,12 +8,14 @@ import com.sniperrex.app.data.local.SignalDao
 import com.sniperrex.app.data.local.SignalEntity
 import com.sniperrex.app.data.remote.AiGateway
 import com.sniperrex.app.data.worker.ScanConfig
+import com.sniperrex.app.data.remote.RateGate
 import com.sniperrex.app.data.remote.TwelveDataApi
 import com.sniperrex.app.domain.engine.AnalysisEngine
 import com.sniperrex.app.domain.engine.Candle
 import com.sniperrex.app.domain.engine.Indicators
 import com.sniperrex.app.domain.engine.Intervals
 import com.sniperrex.app.domain.model.AiVerdict
+import com.sniperrex.app.domain.model.ChartData
 import com.sniperrex.app.domain.model.CoreStrategy
 import com.sniperrex.app.domain.model.Direction
 import com.sniperrex.app.domain.model.MarketPulse
@@ -77,9 +79,45 @@ class LocalSignalRepository @Inject constructor(
         outcome
     }
 
+    /**
+     * Cache candle per (symbol, timeframe). Twelve Data FREE hanya ~8 kredit/menit,
+     * jadi data yang masih segar dipakai ulang alih-alih meminta lagi. Ini yang
+     * membuat chart tidak "kadang hilang" saat dashboard dibuka-tutup.
+     */
+    private val cache = java.util.concurrent.ConcurrentHashMap<String, CachedChart>()
+
+    private data class CachedChart(val candles: List<Candle>, val at: Long)
+
+    /** Umur cache: 60 detik cukup untuk chart intraday, hemat kuota. */
+    private val cacheTtlMs = 60_000L
+
+    private fun cacheKey(info: PairInfo, timeframe: String) = "${info.tdSymbol}|$timeframe"
+
+    /** Request terakhir yang gagal, untuk ditampilkan ke user (mis. kuota habis). */
+    @Volatile
+    private var lastFetchError: String? = null
+
     private suspend fun fetch(info: PairInfo, timeframe: String, outputSize: Int): List<Candle>? {
+        val key = cacheKey(info, timeframe)
+        val hit = cache[key]
+        val now = System.currentTimeMillis()
+        // Cache hanya dipakai bila jumlah barnya cukup untuk permintaan ini —
+        // chart (160) tidak boleh "memotong" kebutuhan engine (300).
+        if (hit != null && now - hit.at < cacheTtlMs && hit.candles.size >= outputSize) {
+            lastFetchError = null
+            return hit.candles
+        }
+
         val creds = settings.current()
-        val interval = Intervals.MAP[timeframe] ?: return null
+        val interval = Intervals.MAP[timeframe] ?: return hit?.candles
+        if (creds.twelveKey.isBlank()) {
+            lastFetchError = "API key belum diisi"
+            return hit?.candles
+        }
+
+        // Hormati batas 8 kredit/menit.
+        RateGate.acquire()
+
         val response = runCatching {
             api.timeSeries(
                 symbol = info.tdSymbol,
@@ -87,9 +125,27 @@ class LocalSignalRepository @Inject constructor(
                 outputSize = outputSize,
                 apiKey = creds.twelveKey,
             )
-        }.getOrNull() ?: return null
-        if (response.status == "error" || response.values.isEmpty()) return null
-        return response.values.mapNotNull { bar ->
+        }.getOrNull()
+
+        if (response == null) {
+            lastFetchError = "jaringan gagal menghubungi Twelve Data"
+            return hit?.candles
+        }
+        if (response.status == "error" || response.values.isEmpty()) {
+            val msg = response.message.orEmpty()
+            lastFetchError = when {
+                response.code == 429 || msg.contains("credits", ignoreCase = true) ->
+                    "kuota Twelve Data habis untuk menit ini"
+                msg.contains("apikey", ignoreCase = true) || msg.contains("api key", ignoreCase = true) ->
+                    "API key ditolak Twelve Data"
+                msg.isNotBlank() -> msg
+                else -> "data kosong dari Twelve Data"
+            }
+            return hit?.candles
+        }
+
+        lastFetchError = null
+        val parsed = response.values.mapNotNull { bar ->
             val open = bar.open.toDoubleOrNull() ?: return@mapNotNull null
             val high = bar.high.toDoubleOrNull() ?: return@mapNotNull null
             val low = bar.low.toDoubleOrNull() ?: return@mapNotNull null
@@ -100,6 +156,15 @@ class LocalSignalRepository @Inject constructor(
                 volume = bar.volume?.toDoubleOrNull() ?: 0.0,
             )
         }.sortedBy { it.timeMs }
+
+        if (parsed.size >= 2) {
+            val existing = cache[key]
+            // Simpan hasil dengan cakupan terluas supaya bisa dipakai ulang.
+            if (existing == null || parsed.size >= existing.candles.size) {
+                cache[key] = CachedChart(parsed, System.currentTimeMillis())
+            }
+        }
+        return parsed.ifEmpty { hit?.candles }
     }
 
     private fun parseTime(raw: String): Long = runCatching {
@@ -252,11 +317,22 @@ class LocalSignalRepository @Inject constructor(
 
     // ---------------- chart & radar ----------------
 
-    override suspend fun candles(pair: String, timeframe: String, limit: Int): List<Candle> =
+    override suspend fun candles(pair: String, timeframe: String, limit: Int): ChartData =
         withContext(Dispatchers.IO) {
-            val info = Pairs.of(pair) ?: return@withContext emptyList()
-            if (settings.current().twelveKey.isBlank()) return@withContext emptyList()
-            fetch(info, timeframe, limit).orEmpty()
+            val info = Pairs.of(pair)
+                ?: return@withContext ChartData(pair, timeframe, error = "pair tidak dikenal")
+            if (settings.current().twelveKey.isBlank()) {
+                return@withContext ChartData(pair, timeframe, error = "API key belum diisi di Settings")
+            }
+            val fresh = fetch(info, timeframe, limit).orEmpty()
+            val cached = cache[cacheKey(info, timeframe)]
+            ChartData(
+                pair = pair,
+                timeframe = timeframe,
+                candles = fresh.ifEmpty { cached?.candles.orEmpty() },
+                error = lastFetchError,
+                stale = fresh.isEmpty() && !cached?.candles.isNullOrEmpty(),
+            )
         }
 
     override suspend fun pulses(pairs: List<String>, timeframe: String): List<MarketPulse> =

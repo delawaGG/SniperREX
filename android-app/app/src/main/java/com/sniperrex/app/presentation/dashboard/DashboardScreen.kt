@@ -49,6 +49,7 @@ import com.sniperrex.app.presentation.components.ScoreRing
 import com.sniperrex.app.presentation.components.SectionLabel
 import com.sniperrex.app.presentation.components.StatTile
 import com.sniperrex.app.presentation.theme.BorderGray
+import com.sniperrex.app.presentation.theme.CyberAmber
 import com.sniperrex.app.presentation.theme.CyberAqua
 import com.sniperrex.app.presentation.theme.CyberCrimson
 import com.sniperrex.app.presentation.theme.CyberLime
@@ -194,20 +195,38 @@ fun DashboardScreen(
                                 .border(1.dp, CyberLime.copy(alpha = 0.25f), RoundedCornerShape(12.dp)),
                         ) {
                             when {
-                                chart.loading && chart.candles.isEmpty() -> CenterHint("memuat candle…")
-                                chart.candles.isEmpty() -> CenterHint(
-                                    chart.error ?: "chart kosong — isi API key di SET lalu buka lagi",
-                                )
-                                else -> CandleChart(
+                                chart.hasData -> CandleChart(
                                     candles = chart.candles,
                                     modifier = Modifier.fillMaxSize().padding(4.dp),
                                 )
+                                chart.loading -> CenterHint("memuat candle…")
+                                else -> CenterHint(
+                                    chart.error ?: "chart kosong — tekan MUAT ULANG",
+                                )
                             }
+
+                            // Label data cache saat jaringan gagal, chart tetap tampil.
+                            if (chart.stale && chart.hasData) {
+                                Text(
+                                    "CACHE · ${chart.error ?: "jaringan lambat"}",
+                                    color = CyberAmber,
+                                    fontSize = 8.sp,
+                                    fontFamily = FontFamily.Monospace,
+                                    fontWeight = FontWeight.Bold,
+                                    modifier = Modifier
+                                        .align(Alignment.TopEnd)
+                                        .padding(8.dp)
+                                        .clip(RoundedCornerShape(4.dp))
+                                        .background(CosmicDark.copy(alpha = 0.85f))
+                                        .padding(horizontal = 5.dp, vertical = 2.dp),
+                                )
+                            }
+                        }
                         }
                         if (chart.candles.isNotEmpty()) {
                             Spacer(Modifier.height(8.dp))
                             Row(
-                                Modifier.fillMaxWidth().clickable { viewModel.loadCandles() },
+                                Modifier.fillMaxWidth().clickable(enabled = !chart.loading) { viewModel.loadCandles() },
                                 horizontalArrangement = Arrangement.Center,
                             ) {
                                 Text(
