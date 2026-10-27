@@ -1,5 +1,6 @@
 package com.sniperrex.app.presentation.settings
 
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
@@ -12,6 +13,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.OutlinedTextFieldDefaults
@@ -22,10 +24,13 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalSoftwareKeyboardController
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.input.PasswordVisualTransformation
+import androidx.compose.ui.text.input.VisualTransformation
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.hilt.navigation.compose.hiltViewModel
@@ -38,6 +43,7 @@ import com.sniperrex.app.presentation.components.NeonButton
 import com.sniperrex.app.presentation.components.SectionLabel
 import com.sniperrex.app.presentation.theme.BorderGray
 import com.sniperrex.app.presentation.theme.CyberAqua
+import com.sniperrex.app.presentation.theme.CyberCrimson
 import com.sniperrex.app.presentation.theme.CyberLime
 import com.sniperrex.app.presentation.theme.PanelElevated
 import com.sniperrex.app.presentation.theme.TextPrimary
@@ -49,6 +55,7 @@ fun SettingsScreen(
     viewModel: SettingsViewModel = hiltViewModel(),
 ) {
     val state by viewModel.state.collectAsStateWithLifecycle()
+    val keyboard = LocalSoftwareKeyboardController.current
 
     CyberBackground {
         Column(Modifier.fillMaxSize().statusBarsPadding()) {
@@ -59,7 +66,7 @@ fun SettingsScreen(
             )
 
             LazyColumn(
-                contentPadding = PaddingValues(16.dp),
+                contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = 4.dp, bottom = 40.dp),
                 verticalArrangement = Arrangement.spacedBy(12.dp),
                 modifier = Modifier.fillMaxSize(),
             ) {
@@ -71,10 +78,14 @@ fun SettingsScreen(
                         )
                         Spacer(Modifier.height(6.dp))
                         Text(
-                            "Tidak perlu server. Engine berjalan di HP ini: " +
-                            "data diambil langsung dari Twelve Data memakai key kamu, " +
-                            "lalu 5 strategi SMC dihitung lokal.",
+                            "1) Tempel Twelve Data key.  2) TEST KONEKSI.  3) SIMPAN.",
                             color = TextSubtle, fontSize = 12.sp,
+                        )
+                        Spacer(Modifier.height(4.dp))
+                        Text(
+                            "Engine berjalan di HP ini; data diambil langsung dari Twelve Data " +
+                            "memakai key kamu lalu dihitung lokal.",
+                            color = TextSubtle, fontSize = 11.sp,
                         )
                     }
                 }
@@ -85,34 +96,49 @@ fun SettingsScreen(
                         Field(
                             label = "API key (gratis di twelvedata.com)",
                             value = state.twelveKey,
-                            secret = true,
+                            secret = !state.revealTwelve,
+                            onToggleReveal = viewModel::toggleRevealTwelve,
+                            imeAction = ImeAction.Done,
+                            onImeDone = { keyboard?.hide() },
                             onChange = viewModel::onTwelveKey,
+                        )
+                        Spacer(Modifier.height(6.dp))
+                        Text(
+                            state.savedHint,
+                            color = if (state.twelveKey.isBlank()) TextSubtle else CyberAqua,
+                            fontSize = 10.sp, fontFamily = FontFamily.Monospace,
                         )
                         Spacer(Modifier.height(10.dp))
                         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                             GhostButton("TEST KONEKSI", accent = CyberAqua) { viewModel.testTwelve() }
+                            GhostButton("SIMPAN", accent = CyberLime) { viewModel.save() }
                         }
-                        state.twelveStatus?.let {
-                            Spacer(Modifier.height(8.dp))
-                            Text(it, color = TextSubtle, fontSize = 11.sp, fontFamily = FontFamily.Monospace)
-                        }
+                        state.twelveStatus?.let { StatusLine(it, state.twelveOk) }
                     }
                 }
 
                 item { SectionLabel("ai second opinion (opsional)") }
                 item {
                     GlowCard(modifier = Modifier.fillMaxWidth()) {
-                        Field("AI API key", state.aiKey, secret = true, onChange = viewModel::onAiKey)
+                        Field(
+                            label = "AI API key",
+                            value = state.aiKey,
+                            secret = !state.revealAi,
+                            onToggleReveal = viewModel::toggleRevealAi,
+                            onChange = viewModel::onAiKey,
+                        )
                         Spacer(Modifier.height(8.dp))
-                        Field("Base URL (OpenAI-compatible)", state.aiBaseUrl, onChange = viewModel::onAiBase)
+                        Field(
+                            label = "Base URL (OpenAI-compatible)",
+                            value = state.aiBaseUrl,
+                            keyboardType = KeyboardType.Uri,
+                            onChange = viewModel::onAiBase,
+                        )
                         Spacer(Modifier.height(8.dp))
                         Field("Model", state.aiModel, onChange = viewModel::onAiModel)
                         Spacer(Modifier.height(10.dp))
                         GhostButton("TEST AI", accent = CyberAqua) { viewModel.testAi() }
-                        state.aiStatus?.let {
-                            Spacer(Modifier.height(8.dp))
-                            Text(it, color = TextSubtle, fontSize = 11.sp, fontFamily = FontFamily.Monospace)
-                        }
+                        state.aiStatus?.let { StatusLine(it, state.aiOk) }
                     }
                 }
 
@@ -150,9 +176,19 @@ fun SettingsScreen(
 
                 item {
                     NeonButton(
-                        text = if (state.busy) "MENYIMPAN..." else "SIMPAN PENGATURAN",
+                        text = if (state.busy) "MEMPROSES..." else "SIMPAN PENGATURAN",
                         enabled = !state.busy,
                     ) { viewModel.save() }
+                }
+
+                state.saveStatus?.let { msg ->
+                    item {
+                        Text(
+                            msg,
+                            color = if (msg.startsWith("Tersimpan") || msg.startsWith("Key tersimpan")) CyberLime else CyberCrimson,
+                            fontSize = 11.sp, fontFamily = FontFamily.Monospace,
+                        )
+                    }
                 }
 
                 item {
@@ -168,10 +204,29 @@ fun SettingsScreen(
 }
 
 @Composable
+private fun StatusLine(text: String, ok: Boolean?) {
+    Spacer(Modifier.height(8.dp))
+    Text(
+        text,
+        color = when (ok) {
+            true -> CyberLime
+            false -> CyberCrimson
+            null -> TextSubtle
+        },
+        fontSize = 11.sp,
+        fontFamily = FontFamily.Monospace,
+    )
+}
+
+@Composable
 private fun Field(
     label: String,
     value: String,
     secret: Boolean = false,
+    onToggleReveal: (() -> Unit)? = null,
+    keyboardType: KeyboardType = KeyboardType.Text,
+    imeAction: ImeAction = ImeAction.Next,
+    onImeDone: (() -> Unit)? = null,
     onChange: (String) -> Unit,
 ) {
     OutlinedTextField(
@@ -179,8 +234,23 @@ private fun Field(
         onValueChange = onChange,
         label = { Text(label, fontSize = 11.sp) },
         singleLine = true,
-        visualTransformation = if (secret) PasswordVisualTransformation() else androidx.compose.ui.text.input.VisualTransformation.None,
-        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Text),
+        visualTransformation = if (secret) PasswordVisualTransformation() else VisualTransformation.None,
+        keyboardOptions = KeyboardOptions(keyboardType = keyboardType, imeAction = imeAction),
+        keyboardActions = KeyboardActions(onDone = { onImeDone?.invoke() }),
+        trailingIcon = if (onToggleReveal != null) {
+            {
+                Text(
+                    if (secret) "LIHAT" else "SEMBUNYI",
+                    color = CyberAqua,
+                    fontSize = 10.sp,
+                    fontFamily = FontFamily.Monospace,
+                    fontWeight = FontWeight.Bold,
+                    modifier = Modifier
+                        .clickable { onToggleReveal() }
+                        .padding(horizontal = 8.dp, vertical = 4.dp),
+                )
+            }
+        } else null,
         shape = RoundedCornerShape(12.dp),
         colors = OutlinedTextFieldDefaults.colors(
             focusedBorderColor = CyberLime,

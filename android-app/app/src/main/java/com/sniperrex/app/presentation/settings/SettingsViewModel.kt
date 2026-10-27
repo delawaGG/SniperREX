@@ -21,6 +21,12 @@ data class SettingsUi(
     val aiModel: String = "",
     val twelveStatus: String? = null,
     val aiStatus: String? = null,
+    val saveStatus: String? = null,
+    val twelveOk: Boolean? = null,
+    val aiOk: Boolean? = null,
+    val revealTwelve: Boolean = false,
+    val revealAi: Boolean = false,
+    val savedHint: String = "belum ada key tersimpan",
     val busy: Boolean = false,
     val autoScan: Boolean = false,
 )
@@ -36,6 +42,13 @@ class SettingsViewModel @Inject constructor(
     private val _state = MutableStateFlow(SettingsUi())
     val state: StateFlow<SettingsUi> = _state.asStateFlow()
 
+    /**
+     * Setelah user mulai mengetik, aliran DataStore tidak boleh menimpa isi field.
+     * Tanpa gerbang ini setiap emisi DataStore mengembalikan field ke nilai lama
+     * sehingga terasa "tidak terbaca".
+     */
+    private var edited = false
+
     init {
         viewModelScope.launch {
             autoScan.observe().collect { enabled ->
@@ -44,32 +57,123 @@ class SettingsViewModel @Inject constructor(
         }
         viewModelScope.launch {
             observeCredentials().collect { c ->
-                _state.value = _state.value.copy(
-                    twelveKey = c.twelveKey, aiKey = c.aiKey,
-                    aiBaseUrl = c.aiBaseUrl, aiModel = c.aiModel,
-                )
+                val hint = when {
+                    c.twelveKey.isBlank() -> "belum ada key tersimpan"
+                    else -> "tersimpan: ••••" + c.twelveKey.takeLast(4)
+                }
+                if (!edited) {
+                    _state.value = _state.value.copy(
+                        twelveKey = c.twelveKey,
+                        aiKey = c.aiKey,
+                        aiBaseUrl = c.aiBaseUrl,
+                        aiModel = c.aiModel,
+                    )
+                }
+                _state.value = _state.value.copy(savedHint = hint)
             }
         }
     }
 
-    fun onTwelveKey(value: String) = _state.update { it.copy(twelveKey = value) }
-    fun onAiKey(value: String) = _state.update { it.copy(aiKey = value) }
-    fun onAiBase(value: String) = _state.update { it.copy(aiBaseUrl = value) }
-    fun onAiModel(value: String) = _state.update { it.copy(aiModel = value) }
+    fun onTwelveKey(value: String) {
+        edited = true
+        _state.value = _state.value.copy(twelveKey = value, twelveOk = null, twelveStatus = null)
+    }
+
+    fun onAiKey(value: String) {
+        edited = true
+        _state.value = _state.value.copy(aiKey = value, aiOk = null, aiStatus = null)
+    }
+
+    fun onAiBase(value: String) {
+        edited = true
+        _state.value = _state.value.copy(aiBaseUrl = value)
+    }
+
+    fun onAiModel(value: String) {
+        edited = true
+        _state.value = _state.value.copy(aiModel = value)
+    }
+
+    fun toggleRevealTwelve() =
+        _state.update { it.copy(revealTwelve = !it.revealTwelve) }
+
+    fun toggleRevealAi() =
+        _state.update { it.copy(revealAi = !it.revealAi) }
 
     fun setAutoScan(enabled: Boolean) = viewModelScope.launch {
         runCatching { autoScan.setEnabled(enabled) }
-            .onFailure { _state.value = _state.value.copy(twelveStatus = "Gagal mengatur jadwal") }
+            .onFailure {
+                _state.value = _state.value.copy(saveStatus = "Gagal mengatur jadwal: ${it.message}")
+            }
     }
 
     fun scanNow() {
         autoScan.runNow()
-        _state.value = _state.value.copy(twelveStatus = "Scan latar belakang dimulai")
+        _state.value = _state.value.copy(saveStatus = "Scan latar belakang dimulai")
     }
 
+    /** Simpan + laporkan hasil nyata (bukan asumsi berhasil). */
     fun save() = viewModelScope.launch {
-        _state.update { it.copy(busy = true) }
+        _state.update { it.copy(busy = true, saveStatus = null) }
         val c = _state.value
+        val outcome = runCatching { persist(c) }
+        edited = false
+        _state.update {
+            outcome.fold(
+                onSuccess = { st -> st.copy(busy = false, saveStatus = "Tersimpan di perangkat", savedHint = hintOf(c.twelveKey)) },
+                onFailure = { e -> it.copy(busy = false, saveStatus = "Gagal menyimpan: ${e.message ?: e.javaClass.simpleName}") },
+            )
+        }
+    }
+
+    /**
+     * Uji koneksi memakai key yang SEDANG DIKETIK, bukan yang tersimpan.
+     * Key disimpan dulu supaya scan berikutnya ikut memakainya.
+     */
+    fun testTwelve() = viewModelScope.launch {
+        _state.update { it.copy(busy = true, twelveStatus = "menguji...", twelveOk = null) }
+        val typed = _state.value.twelveKey.trim()
+        if (typed.isEmpty()) {
+            _state.update { it.copy(busy = false, twelveOk = false, twelveStatus = "Isi API key dulu, lalu tekan TEST lagi") }
+            return@launch
+        }
+        val persistError = runCatching { persist(_state.value) }.exceptionOrNull()
+        if (persistError != null) {
+            _state.update {
+                it.copy(
+                    busy = false, twelveOk = false,
+                    twelveStatus = "Key gagal disimpan: ${persistError.message ?: persistError.javaClass.simpleName}",
+                )
+            }
+            return@launch
+        }
+        edited = false
+        val (ok, detail) = testConnections.twelve()
+        _state.update {
+            it.copy(
+                busy = false, twelveOk = ok,
+                twelveStatus = (if (ok) "OK · " else "Gagal · ") + detail,
+                savedHint = hintOf(typed),
+                saveStatus = if (ok) "Key tersimpan di perangkat" else it.saveStatus,
+            )
+        }
+    }
+
+    fun testAi() = viewModelScope.launch {
+        _state.update { it.copy(busy = true, aiStatus = "menguji...", aiOk = null) }
+        if (_state.value.aiKey.trim().isEmpty()) {
+            _state.update { it.copy(busy = false, aiOk = false, aiStatus = "Isi AI key dulu (opsional, boleh dilewati)") }
+            return@launch
+        }
+        runCatching { persist(_state.value) }
+        edited = false
+        val (ok, detail) = testConnections.ai()
+        _state.update {
+            it.copy(busy = false, aiOk = ok, aiStatus = (if (ok) "OK · " else "Gagal · ") + detail)
+        }
+    }
+
+    private suspend fun persist(c: SettingsUi) {
         saveCredentials(
             Credentials(
                 twelveKey = c.twelveKey.trim(),
@@ -78,20 +182,10 @@ class SettingsViewModel @Inject constructor(
                 aiModel = c.aiModel.trim(),
             )
         )
-        _state.update { it.copy(busy = false, twelveStatus = "Kredensial disimpan di perangkat") }
     }
 
-    fun testTwelve() = viewModelScope.launch {
-        _state.update { it.copy(busy = true) }
-        val (ok, detail) = testConnections.twelve()
-        _state.update { it.copy(busy = false, twelveStatus = (if (ok) "OK: " else "Gagal: ") + detail) }
-    }
-
-    fun testAi() = viewModelScope.launch {
-        _state.update { it.copy(busy = true) }
-        val (ok, detail) = testConnections.ai()
-        _state.update { it.copy(busy = false, aiStatus = (if (ok) "OK: " else "Gagal: ") + detail) }
-    }
+    private fun hintOf(key: String): String =
+        if (key.isBlank()) "belum ada key tersimpan" else "tersimpan: ••••" + key.trim().takeLast(4)
 }
 
 private inline fun <T> MutableStateFlow<T>.update(transform: (T) -> T) {

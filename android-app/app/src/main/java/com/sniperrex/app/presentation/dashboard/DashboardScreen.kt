@@ -17,11 +17,15 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -31,6 +35,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import com.sniperrex.app.domain.model.Pairs
 import com.sniperrex.app.domain.model.Signal
 import com.sniperrex.app.presentation.components.CyberBackground
 import com.sniperrex.app.presentation.components.CyberTopBar
@@ -41,21 +46,37 @@ import com.sniperrex.app.presentation.components.NeonButton
 import com.sniperrex.app.presentation.components.ScoreRing
 import com.sniperrex.app.presentation.components.SectionLabel
 import com.sniperrex.app.presentation.components.StatTile
+import com.sniperrex.app.presentation.theme.BorderGray
 import com.sniperrex.app.presentation.theme.CyberAqua
 import com.sniperrex.app.presentation.theme.CyberCrimson
 import com.sniperrex.app.presentation.theme.CyberLime
+import com.sniperrex.app.presentation.theme.CosmicDark
+import com.sniperrex.app.presentation.theme.PanelDark
+import com.sniperrex.app.presentation.theme.TextPrimary
 import com.sniperrex.app.presentation.theme.TextSubtle
 import com.sniperrex.app.ui.TradingViewWidget
+
+/** Simbol TradingView untuk tiap pair internal. */
+private val TV_SYMBOL = mapOf(
+    "XAUUSD" to "OANDA:XAUUSD",
+    "EURUSD" to "OANDA:EURUSD",
+    "GBPUSD" to "OANDA:GBPUSD",
+    "USDJPY" to "OANDA:USDJPY",
+    "BTCUSD" to "BITSTAMP:BTCUSD",
+)
 
 @Composable
 fun DashboardScreen(
     onOpenSettings: () -> Unit,
     onOpenSignals: () -> Unit,
-    onScan: () -> Unit,
+    onScan: (String) -> Unit,
     onOpenSignal: (String) -> Unit,
     viewModel: DashboardViewModel = hiltViewModel(),
 ) {
     val signals by viewModel.signals.collectAsStateWithLifecycle()
+    var selectedPair by remember { mutableStateOf("XAUUSD") }
+    var selectedTf by remember { mutableStateOf("M15") }
+
     val longs = signals.count { it.direction.name == "LONG" }
     val avgScore = if (signals.isEmpty()) 0 else signals.sumOf { it.quantScore } / signals.size
 
@@ -64,16 +85,12 @@ fun DashboardScreen(
             CyberTopBar(
                 title = "SNIPERREX",
                 subtitle = "smc engine · on-device",
-                actions = {
-                    GhostButton("JOURNAL", accent = CyberAqua) { onOpenSignals() }
-                    Spacer(Modifier.width(8.dp))
-                    GhostButton("SET", accent = CyberLime) { onOpenSettings() }
-                },
+                actions = { GhostButton("SET", accent = CyberAqua) { onOpenSettings() } },
             )
 
             LazyColumn(
                 modifier = Modifier.fillMaxSize(),
-                contentPadding = PaddingValues(start = 16.dp, end = 16.dp, bottom = 120.dp),
+                contentPadding = PaddingValues(start = 16.dp, end = 16.dp, bottom = 150.dp),
                 verticalArrangement = Arrangement.spacedBy(12.dp),
             ) {
                 item {
@@ -84,6 +101,39 @@ fun DashboardScreen(
                     }
                 }
 
+                // --- pemilih pair ---
+                item {
+                    LazyRow(
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                        contentPadding = PaddingValues(vertical = 2.dp),
+                    ) {
+                        items(Pairs.ALL) { info ->
+                            val active = info.symbol == selectedPair
+                            Box(
+                                Modifier
+                                    .clip(RoundedCornerShape(10.dp))
+                                    .background(if (active) CyberLime.copy(alpha = 0.14f) else PanelDark)
+                                    .border(
+                                        1.dp,
+                                        if (active) CyberLime else BorderGray,
+                                        RoundedCornerShape(10.dp),
+                                    )
+                                    .clickable { selectedPair = info.symbol }
+                                    .padding(horizontal = 14.dp, vertical = 8.dp),
+                            ) {
+                                Text(
+                                    info.symbol,
+                                    color = if (active) CyberLime else TextSubtle,
+                                    fontSize = 12.sp,
+                                    fontFamily = FontFamily.Monospace,
+                                    fontWeight = FontWeight.Bold,
+                                )
+                            }
+                        }
+                    }
+                }
+
+                // --- chart ---
                 item {
                     GlowCard(accent = CyberLime, modifier = Modifier.fillMaxWidth()) {
                         Row(
@@ -92,21 +142,73 @@ fun DashboardScreen(
                             verticalAlignment = Alignment.CenterVertically,
                         ) {
                             Text(
-                                "XAUUSD · M15", color = CyberLime,
+                                "$selectedPair · $selectedTf", color = CyberLime,
                                 fontFamily = FontFamily.Monospace,
                                 fontWeight = FontWeight.Bold, fontSize = 13.sp,
                             )
-                            Text("LIVE CHART", color = TextSubtle, fontSize = 9.sp, fontFamily = FontFamily.Monospace)
+                            LazyRow(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                                items(listOf("M15", "M30", "H1", "H4")) { tf ->
+                                    val active = tf == selectedTf
+                                    Text(
+                                        tf,
+                                        color = if (active) CyberLime else TextSubtle,
+                                        fontSize = 10.sp,
+                                        fontFamily = FontFamily.Monospace,
+                                        fontWeight = FontWeight.Bold,
+                                        modifier = Modifier
+                                            .clip(RoundedCornerShape(6.dp))
+                                            .background(if (active) CosmicDark else PanelDark)
+                                            .clickable { selectedTf = tf }
+                                            .padding(horizontal = 6.dp, vertical = 3.dp),
+                                    )
+                                }
+                            }
                         }
                         Spacer(Modifier.height(10.dp))
                         Box(
                             Modifier
                                 .fillMaxWidth()
-                                .height(230.dp)
+                                .height(260.dp)
                                 .clip(RoundedCornerShape(12.dp))
                                 .border(1.dp, CyberLime.copy(alpha = 0.25f), RoundedCornerShape(12.dp)),
                         ) {
-                            TradingViewWidget(symbol = "OANDA:XAUUSD", modifier = Modifier.fillMaxSize())
+                            TradingViewWidget(
+                                symbol = TV_SYMBOL[selectedPair] ?: "OANDA:XAUUSD",
+                                intervalMinutes = when (selectedTf) {
+                                    "M30" -> 30
+                                    "H1" -> 60
+                                    "H4" -> 240
+                                    else -> 15
+                                },
+                                modifier = Modifier.fillMaxSize(),
+                            )
+                        }
+                    }
+                }
+
+                // --- pintu masuk journal ---
+                item {
+                    GlowCard(accent = CyberAqua, modifier = Modifier.fillMaxWidth(), onClick = onOpenSignals) {
+                        Row(
+                            Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically,
+                        ) {
+                            Column(Modifier.weight(1f)) {
+                                Text(
+                                    "JOURNAL SIGNAL",
+                                    color = CyberAqua,
+                                    fontFamily = FontFamily.Monospace,
+                                    fontWeight = FontWeight.Bold,
+                                    fontSize = 13.sp,
+                                )
+                                Text(
+                                    "${signals.size} signal tersimpan · ketuk untuk membuka",
+                                    color = TextSubtle, fontSize = 11.sp,
+                                    fontFamily = FontFamily.Monospace,
+                                )
+                            }
+                            Text("›", color = CyberAqua, fontSize = 24.sp, fontFamily = FontFamily.Monospace)
                         }
                     }
                 }
@@ -122,9 +224,9 @@ fun DashboardScreen(
                             )
                             Spacer(Modifier.height(6.dp))
                             Text(
-                                "1) Isi Twelve Data key di SET.  2) Tekan SCAN MARKET.  " +
-                                "3) Engine mengevaluasi bar tertutup terakhir — kalau tidak ada setup, " +
-                                "hasilnya kosong dan itu benar.",
+                                "1) Isi Twelve Data key di SET.  2) Tekan SCAN.  " +
+                                "3) Engine hanya mengevaluasi bar tertutup terakhir — kalau tidak ada setup, " +
+                                "hasil kosong dan itu benar.",
                                 color = TextSubtle, fontSize = 12.sp,
                             )
                         }
@@ -146,13 +248,17 @@ fun DashboardScreen(
             }
         }
 
-        Box(
+        Row(
             Modifier
                 .align(Alignment.BottomCenter)
                 .navigationBarsPadding()
                 .padding(horizontal = 16.dp, vertical = 16.dp),
+            horizontalArrangement = Arrangement.spacedBy(10.dp),
         ) {
-            NeonButton("SCAN MARKET", onClick = onScan)
+            GhostButton("JOURNAL", accent = CyberAqua, modifier = Modifier.height(50.dp)) { onOpenSignals() }
+            Box(Modifier.weight(1f)) {
+                NeonButton("SCAN $selectedPair") { onScan(selectedPair) }
+            }
         }
     }
 }
@@ -168,7 +274,7 @@ private fun SignalCard(signal: Signal, onClick: () -> Unit) {
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     Text(
                         "${signal.pair} · ${signal.timeframe}",
-                        color = androidx.compose.material3.MaterialTheme.colorScheme.onSurface,
+                        color = TextPrimary,
                         fontFamily = FontFamily.Monospace,
                         fontWeight = FontWeight.Bold, fontSize = 14.sp,
                     )

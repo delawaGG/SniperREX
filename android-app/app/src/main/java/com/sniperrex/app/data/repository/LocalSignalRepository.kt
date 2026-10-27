@@ -128,14 +128,39 @@ class LocalSignalRepository @Inject constructor(
 
     override suspend fun tierTimeframes(): List<String> = listOf("M15", "M30", "M45")
 
+    /**
+     * Uji key nyata. `api_usage` dipakai lebih dulu (0 kredit), lalu jatuh ke
+     * satu request time_series kecil kalau endpoint itu tidak tersedia pada plan
+     * tertentu. Key selalu dibaca dari DataStore, jadi pemanggil wajib menyimpan
+     * key lebih dulu (dilakukan SettingsViewModel sebelum memanggil ini).
+     */
     override suspend fun testTwelve(): Pair<Boolean, String> = withContext(Dispatchers.IO) {
-        val key = settings.current().twelveKey
+        val key = settings.current().twelveKey.trim()
         if (key.isBlank()) return@withContext false to "API key kosong"
-        val usage = runCatching { api.apiUsage(key) }.getOrNull()
-            ?: return@withContext false to "tidak bisa menghubungi Twelve Data"
-        if (usage.status == "error") return@withContext false to (usage.message ?: "key ditolak")
-        val plan = usage.planCategory.orEmpty().ifBlank { "basic" }
-        true to "terhubung, plan $plan (${usage.dailyUsage ?: 0}/${usage.planDailyLimit ?: 0} kredit hari ini)"
+
+        val usageAttempt = runCatching { api.apiUsage(key) }
+        val usage = usageAttempt.getOrNull()
+        if (usage != null) {
+            if (usage.status == "error" || usage.code != null) {
+                return@withContext false to (usage.message ?: "key ditolak (kode ${usage.code})")
+            }
+            val plan = usage.planCategory.orEmpty().ifBlank { "free" }
+            val daily = usage.dailyUsage ?: 0
+            val limit = usage.planDailyLimit ?: 0
+            val suffix = if (limit > 0) " · $daily/$limit kredit" else ""
+            return@withContext true to "terhubung · plan $plan$suffix"
+        }
+
+        // Fallback: validasi key lewat satu bar XAU/USD.
+        val probe = runCatching {
+            api.timeSeries("XAU/USD", "15min", 1, apiKey = key)
+        }
+        val series = probe.getOrNull()
+            ?: return@withContext false to (probe.exceptionOrNull()?.message ?: "tidak bisa menghubungi Twelve Data")
+        if (series.status == "error" || series.values.isEmpty()) {
+            return@withContext false to (series.message ?: "key ditolak atau data kosong")
+        }
+        true to "terhubung · data XAU/USD diterima"
     }
 
     override suspend fun testAi(): Pair<Boolean, String> = withContext(Dispatchers.IO) {

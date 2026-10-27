@@ -31,7 +31,7 @@ fun AppNavHost(navController: NavHostController = rememberNavController()) {
             DashboardScreen(
                 onOpenSettings = { navController.navigate(Routes.SETTINGS) },
                 onOpenSignals = { navController.navigate(Routes.SIGNALS) },
-                onScan = { navController.navigate(Routes.PAIR) },
+                onScan = { pair -> navController.navigate("${Routes.STRATEGY}?pair=$pair&tf=M15") },
                 onOpenSignal = { id -> navController.navigate(Routes.detail(id)) },
             )
         }
