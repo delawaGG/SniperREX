@@ -13,9 +13,14 @@ class SniperRexApp : Application(), Configuration.Provider {
     @Inject
     lateinit var workerFactory: HiltWorkerFactory
 
+    /** Dipasang sebelum Hilt/WorkManager init agar crash paling awal pun tercatat. */
+    override fun attachBaseContext(base: android.content.Context) {
+        super.attachBaseContext(base)
+        CrashGuard.install(base)
+    }
+
     override fun onCreate() {
         super.onCreate()
-        CrashGuard.install(this)
     }
 
     override val workManagerConfiguration: Configuration
