@@ -118,10 +118,21 @@ class SettingsViewModel @Inject constructor(
         val c = _state.value
         val outcome = runCatching { persist(c) }
         edited = false
-        _state.update {
+        _state.update { current ->
             outcome.fold(
-                onSuccess = { st -> st.copy(busy = false, saveStatus = "Tersimpan di perangkat", savedHint = hintOf(c.twelveKey)) },
-                onFailure = { e -> it.copy(busy = false, saveStatus = "Gagal menyimpan: ${e.message ?: e.javaClass.simpleName}") },
+                onSuccess = {
+                    current.copy(
+                        busy = false,
+                        saveStatus = "Tersimpan di perangkat",
+                        savedHint = hintOf(c.twelveKey),
+                    )
+                },
+                onFailure = { e ->
+                    current.copy(
+                        busy = false,
+                        saveStatus = "Gagal menyimpan: " + (e.message ?: e.javaClass.simpleName),
+                    )
+                },
             )
         }
     }
