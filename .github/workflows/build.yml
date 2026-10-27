@@ -26,6 +26,11 @@ jobs:
 
   android-debug-apk:
     runs-on: ubuntu-latest
+    env:
+      # Runner GitHub sudah punya Android SDK; tidak perlu action setup-android
+      # (action itu yang gagal pada run #1).
+      ANDROID_SDK_ROOT: /usr/local/lib/android/sdk
+      ANDROID_HOME: /usr/local/lib/android/sdk
     steps:
       - uses: actions/checkout@v4
 
@@ -34,7 +39,17 @@ jobs:
           distribution: temurin
           java-version: "17"
 
-      - uses: android-actions/setup-android@v3
+      - name: Diagnosa SDK
+        run: |
+          echo "ANDROID_HOME=$ANDROID_HOME"
+          ls "$ANDROID_HOME" || true
+          ls "$ANDROID_HOME/platforms" || true
+          ls "$ANDROID_HOME/build-tools" || true
+
+      - name: Terima lisensi SDK
+        run: |
+          yes | "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" --licenses > /dev/null 2>&1 || \
+          yes | "$ANDROID_HOME/cmdline-tools/bin/sdkmanager" --licenses > /dev/null 2>&1 || true
 
       - uses: gradle/actions/setup-gradle@v4
         with:
@@ -45,8 +60,19 @@ jobs:
         run: gradle :app:assembleDebug --no-daemon --stacktrace
 
       - name: Upload APK
+        if: always()
         uses: actions/upload-artifact@v4
         with:
           name: sniperrex-debug-apk
           path: android-app/app/build/outputs/apk/debug/*.apk
-          if-no-files-found: error
+          if-no-files-found: warn
+
+      - name: Upload build reports
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: build-reports
+          path: |
+            android-app/app/build/reports/**
+            android-app/build/reports/**
+          if-no-files-found: ignore
