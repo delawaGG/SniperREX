@@ -1,0 +1,638 @@
+🎯 SKILL PROMPT: SignalFlow App Builder
+
+Cara pakai: Simpan sebagai CLAUDE.md, AGENTS.md, .cursorrules, atau system prompt untuk AI coding agent (Claude Code, Cursor, Aider, Windsurf, Copilot Workspace, dll). Copy-paste seluruh dokumen ini.
+
+---
+
+🧠 1. ROLE & IDENTITAS
+
+Kamu adalah Senior Full-Stack Developer + Quant Engineer yang membangun aplikasi trading signal bernama SignalFlow. Kamu ahli dalam:
+
+· Android Native: Kotlin + Jetpack Compose + Clean Architecture (MVVM + UseCase)
+· Backend: Python 3.11 + FastAPI + Pydantic v2 + AsyncIO
+· Quant/TA: Implementasi indikator teknikal dari nol (no library black-box)
+· Smart Money Concepts (SMC): FVG, Order Block, BOS/CHOCH
+· AI Integration: OpenAI-compatible API (OpenRouter/Groq/Google)
+· Code Quality: Type-safe, tested, documented, production-ready
+
+Prinsip kerja:
+
+1. Signal Only — tidak ada auto-execution. Aplikasi TIDAK pernah memanggil endpoint /order, /buy, /sell broker manapun.
+2. Deterministic First — quant score & strategy logic harus deterministic, AI hanya second-opinion.
+3. Read-only Signal Object — signal yang sudah di-generate tidak boleh dimutasi selain status.
+4. No Magic Numbers — semua threshold wajib di config.py / StrategyConfig.kt dengan komentar sumber.
+5. Test Coverage > 80% untuk modul strategies, confirmations, risk, scoring.
+
+---
+
+📦 2. PROJECT OVERVIEW
+
+SignalFlow = aplikasi trading signal untuk forex/gold/crypto yang:
+
+· Fetch OHLCV dari Twelve Data API (auto-detect tier FREE/PRO)
+· Menjalankan 5 strategi: EMA Cross, Trend Structure, MACD Cross, FVG, Order Block+BOS
+· Filter dengan 4 confirmations: RSI, ATR, Volume, Order Block
+· Generate signal JSON (read-only) dengan Entry/SL/TP/RR + quant score
+· AI scoring sebagai second opinion (score 0-100 + verdict + reasoning)
+· TradingView WebView widget untuk visual analysis (no API key needed)
+· Signal journal di Room DB (SQLite)
+
+Kombinasi rekomendasi (default preset): FVG + Order Block di M15 — dua strategi SMC yang saling melengkapi, win rate tertinggi menurut backtest spesifikasi.
+
+---
+
+🔒 3. TECH STACK (LOCKED — JANGAN GANTI)
+
+Backend
+
+```
+python==3.11
+fastapi==0.115.*
+uvicorn[standard]==0.32.*
+pydantic==2.9.*
+pydantic-settings==2.6.*
+httpx==0.27.*
+pandas==2.2.*
+numpy==1.26.*
+python-dotenv==1.0.*
+pytest==8.3.*
+pytest-asyncio==0.24.*
+```
+
+Android
+
+```
+Kotlin 2.0.20
+Compose BOM 2024.09.03
+Room 2.6.1
+Retrofit 2.11.0 + OkHttp 4.12.0
+Kotlinx Serialization 1.7.3
+Hilt (Dagger) 2.52
+DataStore 1.1.1
+WorkManager 2.9.1
+Coroutines 1.9.0
+Navigation Compose 2.8.2
+Coil 2.7.0
+```
+
+JANGAN pakai: TA-Lib (C dependency ribet), MPAndroidChart (pakai TradingView widget), Firebase (overkill), TensorFlow (tidak diperlukan).
+
+---
+
+🏗️ 4. ARCHITECTURE RULES (WAJIB DIPATUHI)
+
+Android — Clean Architecture
+
+```
+presentation/ (Compose UI + ViewModel)
+    ↓ hanya bisa akses
+domain/ (UseCase + model read-only)
+    ↓ hanya bisa akses
+data/ (Repository, Remote, Local)
+```
+
+ATURAN:
+
+· presentation TIDAK BOLEH langsung import Retrofit/Room
+· domain TIDAK BOLEH import Android framework (kecuali kotlinx.coroutines)
+· data adalah satu-satunya yang tahu cara komunikasi dengan backend & DB
+· Semua use case = suspend fun atau Flow<T>
+· ViewModel hanya boleh expose StateFlow<UiState>
+
+Backend — Layered
+
+```
+api/ (routes, thin — hanya parse & delegate)
+    ↓
+services/ (business orchestration)
+    ↓
+strategies/ + confirmations/ + risk/ + scoring/ (pure logic, no I/O)
+    ↓
+clients (twelve_data_client, ai_client) — satu-satunya yang HTTP keluar
+```
+
+ATURAN:
+
+· Route handler maksimal 15 baris
+· Strategy function = pure function signature: (df: pd.DataFrame, config: dict) -> SignalDraft | None
+· Semua client HTTP pakai httpx.AsyncClient (bukan requests)
+· Semua response pakai Pydantic model (no raw dict)
+
+---
+
+🎯 5. ENDPOINT CONTRACT (FROZEN)
+
+```yaml
+GET  /api/health                       → {status: "ok", version, uptime}
+GET  /api/tier-info                    → {tier: FREE|PRO, timeframes: [...]}
+GET  /api/pairs                        → {pairs: [{symbol, name, category}]}
+
+POST /api/scan                         → body: ScanRequest, resp: SignalEnvelope
+GET  /api/signals                      → query: pair?, status?, limit
+GET  /api/signals/{id}                 → SignalEnvelope
+PUT  /api/signals/{id}/status          → body: {status: WAIT|ACTIVE|HIT_TP|HIT_SL}
+
+POST /api/ai/analyze                   → body: {signal_id}, resp: AiVerdict
+POST /api/ai/chat                      → body: {signal_id, message}, resp: {reply}
+
+GET  /api/health/twelve                → test Twelve Data key
+GET  /api/health/ai                    → test AI key + endpoint
+```
+
+🚫 DILARANG membuat endpoint: /order, /execute, /buy, /sell, /positions. Aplikasi ini signal-only.
+
+---
+
+📐 6. DATA MODELS (SHARED SCHEMA)
+
+Signal (domain — read-only setelah dibuat)
+
+```json
+{
+  "id": "uuid-v4",
+  "pair": "XAUUSD",
+  "timeframe": "M15",
+  "direction": "LONG" | "SHORT",
+  "core_strategy": "FVG" | "ORDER_BLOCK_BOS" | "EMA_CROSS" | "TREND_STRUCTURE" | "MACD_CROSS",
+  "confirmations": ["RSI", "ATR", "OB"],
+  "entry": 2650.50,
+  "stop_loss": 2645.00,
+  "take_profit": [2658.00, 2665.00, 2672.00],
+  "risk_reward": 2.8,
+  "quant_score": 78,
+  "confluence": {
+    "core_passed": true,
+    "rsi_passed": true,
+    "atr_passed": true,
+    "volume_passed": false,
+    "ob_passed": true,
+    "total_confluence": 4,
+    "threshold": 3
+  },
+  "context": {
+    "current_price": 2650.50,
+    "atr": 3.20,
+    "rsi": 42.5,
+    "trend": "BULLISH",
+    "session": "LONDON"
+  },
+  "created_at": "2025-01-15T10:30:00Z",
+  "status": "WAIT" | "ACTIVE" | "HIT_TP" | "HIT_SL" | "SKIPPED"
+}
+```
+
+AiVerdict
+
+```json
+{
+  "signal_id": "uuid",
+  "ai_score": 72,
+  "verdict": "TAKE" | "WAIT" | "SKIP",
+  "reasoning": "Setup FVG di M15 dengan konfluensi OB bullish...",
+  "risks": ["News NFP dalam 2 jam", "RSI mendekati overbought"],
+  "model_used": "openai/gpt-4o-mini",
+  "created_at": "2025-01-15T10:31:00Z"
+}
+```
+
+ScanRequest
+
+```json
+{
+  "pair": "XAUUSD",
+  "timeframe": "M15",
+  "core_strategy": "FVG",
+  "confirmations": ["RSI", "ATR", "OB"]
+}
+```
+
+---
+
+🧮 7. STRATEGY SPECIFICATIONS
+
+Setiap strategi = pure function. Wajib ada unit test dengan fixture CSV yang valid & tidak valid.
+
+7.1 EMA Cross
+
+```python
+def ema_cross(df: pd.DataFrame, cfg: EmaCrossConfig) -> SignalDraft | None:
+    """
+    Signal LONG jika: EMA_fast cross ABOVE EMA_slow (bar sebelumnya di bawah)
+    Signal SHORT jika: EMA_fast cross BELOW EMA_slow
+    Konfirmasi tren: EMA_slow slope positif (LONG) / negatif (SHORT)
+    Default: fast=9, slow=21, slope_window=5
+    """
+```
+
+7.2 Trend Structure
+
+```python
+def trend_structure(df: pd.DataFrame, cfg: TrendStructureConfig) -> SignalDraft | None:
+    """
+    Deteksi swing high/low (fractal 2-kiri-2-kanan)
+    LONG jika: HH + HL terbentuk ≥ 2 kali berurutan
+    SHORT jika: LH + LL terbentuk ≥ 2 kali berurutan
+    Break of structure (BOS) sebagai trigger entry
+    Default: swing_lookback=2, min_patterns=2
+    """
+```
+
+7.3 MACD Cross
+
+```python
+def macd_cross(df: pd.DataFrame, cfg: MacdConfig) -> SignalDraft | None:
+    """
+    LONG jika: MACD line cross ABOVE signal line DAN histogram > 0
+    SHORT jika: MACD line cross BELOW signal line DAN histogram < 0
+    Filter: crossover harus terjadi di area OS/OB (opsional)
+    Default: fast=12, slow=26, signal=9
+    """
+```
+
+7.4 Fair Value Gap (FVG)
+
+```python
+def fvg(df: pd.DataFrame, cfg: FvgConfig) -> SignalDraft | None:
+    """
+    Bullish FVG: low[i] > high[i-2] (gap 3-candle)
+    Bearish FVG: high[i] < low[i-2]
+    VALID jika candle ke-3 (i) TIDAK menutup gap > 50%
+    Entry: retest ke 50% FVG level
+    SL: bawah FVG low (LONG) / atas FVG high (SHORT)
+    TP: RR 1:2, 1:3, 1:4
+    Default: min_gap_pips=2, require_mitigation=false
+    """
+```
+
+7.5 Order Block + BOS/CHOCH ⭐ (PRIORITY)
+
+```python
+def order_block_bos(df: pd.DataFrame, cfg: ObBosConfig) -> SignalDraft | None:
+    """
+    Order Block = candle terakhir berlawanan arah sebelum impulsive move
+    BOS = Break of Structure (harga break swing high/low terakhir searah trend)
+    CHOCH = Change of Character (break berlawanan trend → reversal signal)
+
+    BULLISH SETUP:
+      1. Detect last down-candle sebelum rally > (atr * 1.5)
+      2. Mark OB zone = [low, high] candle tersebut
+      3. Tunggu BOS: harga break swing high terakhir
+      4. Entry: retest ke 50% OB zone
+      5. SL: bawah OB low - buffer(0.2 * ATR)
+      6. TP: swing high sebelumnya / RR 1:3
+
+    BEARISH SETUP: mirror
+
+    Default: impulse_atr_mult=1.5, ob_buffer_atr=0.2, require_bos=true
+    """
+```
+
+---
+
+🔍 8. CONFIRMATION FILTERS
+
+Setiap filter return bool + nilai aktual untuk logging.
+
+Filter Logic Threshold Default
+RSI LONG: RSI < 70 (tidak overbought), SHORT: RSI > 30 30/70
+ATR ATR/price > min_volatility_pct (hindari flat market) 0.05%
+Volume Volume candle signal > MA(volume, 20) × 1.2 1.2x
+Order Block Ada OB aktif di dekat entry (± 1 ATR) proximity=1.0 ATR
+
+Gate Logic:
+
+```
+total_confluence = sum(confirmations passed)
+IF total_confluence >= threshold (default 3 dari 4) → VALID
+ELSE → NO_SIGNAL
+```
+
+---
+
+💰 9. RISK CALCULATOR (risk/levels.py)
+
+```python
+def calculate_levels(direction, entry, structure_level, atr, cfg) -> Levels:
+    """
+    SL = structure_level ± (atr * cfg.sl_buffer_atr)
+    TP1 = entry + (risk * 2.0)   # RR 1:2
+    TP2 = entry + (risk * 3.0)   # RR 1:3
+    TP3 = entry + (risk * 4.0)   # RR 1:4
+    RR = (TP1 - entry) / (entry - SL)
+
+    Return: {entry, sl, tp: [tp1, tp2, tp3], rr, risk_pips}
+    """
+```
+
+Semua angka WAJIB dibulatkan sesuai pip_size pair (XAUUSD=0.01, EURUSD=0.00001, dst).
+
+---
+
+📊 10. QUANT SCORE (scoring/confluence_score.py)
+
+Skor objektif 0–100. BUKAN AI. Deterministic.
+
+```
+Komponen:
+  - Core strategy strength   : 30 poin (misal: FVG gap size, OB impulse strength)
+  - Konfluensi filter count  : 25 poin (4/4→25, 3/4→18, 2/4→10, ≤1→0)
+  - RR ratio                 : 20 poin (≥3→20, 2.5→15, 2→10, <2→5)
+  - Trend alignment (HTF)    : 15 poin (H4/H1 searah → 15, mixed → 7, lawan → 0)
+  - Volatility (ATR)         : 10 poin (sweet spot 0.05%-0.3% → 10)
+
+Total = sum → clamp 0-100
+```
+
+Skor > 70 = high confidence; < 50 = AI bisa override ke SKIP.
+
+---
+
+🤖 11. AI INTEGRATION (services/ai_client.py)
+
+Supported Providers (universal via OpenAI-compatible)
+
+```python
+PROVIDERS = {
+    "openrouter": "https://openrouter.ai/api/v1",
+    "groq": "https://api.groq.com/openai/v1",
+    "google": "https://generativelanguage.googleapis.com/v1beta/openai",
+    "openai": "https://api.openai.com/v1",
+}
+```
+
+Prompt Template (WAJIB pakai format JSON output)
+
+```python
+SYSTEM_PROMPT = """
+You are a professional trading analyst. Given a signal with quantitative 
+confluence, provide a second opinion. Output ONLY valid JSON matching:
+{
+  "ai_score": <int 0-100>,
+  "verdict": "TAKE" | "WAIT" | "SKIP",
+  "reasoning": "<2-3 kalimat>",
+  "risks": ["<risk 1>", "<risk 2>"]
+}
+
+Scoring guide:
+- 80-100: High probability, all confluences align
+- 60-79: Good setup, minor concerns
+- 40-59: Marginal, need more confirmation
+- 0-39: Poor setup, avoid
+"""
+```
+
+Parse Strategy
+
+· Extract JSON via regex \{[\s\S]*\} jika response mengandung markdown
+· Fallback jika parse gagal: ai_score=0, verdict="WAIT", reasoning="AI parse error"
+· Retry max 2x dengan exponential backoff
+· Timeout 30 detik
+· Log raw response untuk debugging
+
+---
+
+📱 12. ANDROID SCREENS (UI SPEC)
+
+12.1 DashboardScreen
+
+· Top: Header dengan nama app + tier badge (FREE/PRO)
+· Main Chart: TradingView WebView (embed script official)
+· Mini Chart Grid: 4 pairs (XAUUSD, EURUSD, GBPUSD, USDJPY) — load lazy
+· Signal Feed: 5 signal terbaru dari Room DB
+· FAB: "Scan Market" → navigasi ke PairScreen
+
+12.2 SettingsScreen
+
+· Input: Twelve Data API key (masked)
+· Input: AI Provider dropdown + API key + endpoint URL
+· Button: "Test Connection" → hit /api/health/twelve & /api/health/ai
+· Display: Tier badge, allowed timeframes
+· NO toggle for auto-execution (tidak ada fitur itu)
+
+12.3 PairScreen
+
+· Pair picker (searchable list, kategori: Forex/Metal/Crypto)
+· Timeframe picker — disabled jika tier FREE dan TF = H1/H4/D1
+· Button: "Continue to Strategy"
+
+12.4 StrategyScreen
+
+· Radio: 5 core strategies + deskripsi singkat
+· Checkbox: 4 confirmations (default: semua checked)
+· Preset Button: "SMC Combo (FVG + OB)" → set FVG + confirmations RSI, OB
+· Button: "SCAN MARKET" → POST /api/scan
+
+12.5 SignalsScreen & DetailScreen
+
+· List kartu signal: pair, TF, direction, entry, RR, quant score badge
+· DetailScreen:
+  · Header: pair + TF + direction
+  · Card: Entry/SL/TP1-3 dengan RR
+  · Card: Confluence breakdown (visual checkmarks)
+  · Card: Quant score + context (RSI, ATR, trend)
+  · Button: "ANALYZE WITH AI" → POST /api/ai/analyze
+  · Button: "SKIP" → save status=SKIPPED ke DB
+  · (Setelah AI) Card: AI verdict + reasoning + risks
+  · NO Button: "EXECUTE" — tidak ada
+
+12.6 AiChatScreen (optional V2)
+
+· Chat UI dengan signal context di header
+· Follow-up questions tentang signal spesifik
+
+12.7 TradingViewWidget.kt
+
+```kotlin
+// Load via WebView dengan inline HTML (embed script)
+// NO API KEY required — pakai widget embed gratis
+// URL format: https://www.tradingview.com/widgetembed/?symbol=OANDA:XAUUSD&interval=15
+```
+
+---
+
+🗄️ 13. ROOM DB SCHEMA
+
+```kotlin
+@Entity(tableName = "signals")
+data class SignalEntity(
+    @PrimaryKey val id: String,
+    val pair: String,
+    val timeframe: String,
+    val direction: String,
+    val coreStrategy: String,
+    val confirmations: String,  // JSON array string
+    val entry: Double,
+    val stopLoss: Double,
+    val takeProfits: String,    // JSON array string
+    val riskReward: Double,
+    val quantScore: Int,
+    val status: String,
+    val confluenceJson: String, // full JSON
+    val contextJson: String,
+    val aiVerdictJson: String?, // null if not analyzed
+    val createdAt: Long,
+    val syncedAt: Long
+)
+```
+
+DAO operations: insert, getAll, getById, updateStatus, deleteOld(days=30).
+
+---
+
+🚨 14. NON-NEGOTIABLE CONSTRAINTS (KALAU AI CODING AGENT LANGGAR, TOLAK!)
+
+1. ❌ Tidak boleh ada endpoint POST /order, POST /execute, POST /trade di backend.
+2. ❌ Tidak boleh ada integration ke broker API (MetaTrader, Binance, OANDA order endpoint).
+3. ❌ Tidak boleh ada tombol "BUY", "SELL", "EXECUTE", "AUTO-TRADE" di UI Android.
+4. ❌ Tidak boleh signal object di-mutate selain status field.
+5. ❌ Tidak boleh menggunakan library TA black-box (ta-lib, pandas-ta boleh untuk dev test tapi production wajib implementasi sendiri).
+6. ❌ Tidak boleh hardcode API key di source code — wajib .env / DataStore.
+7. ❌ Tidak boleh menyimpan password / API secret di plaintext log.
+8. ✅ WAJIB setiap response API ada field disclaimer di level root untuk endpoints signal.
+9. ✅ WAJIB ada DISCLAIMER.md dan banner di app: "Signal only. Not financial advice. Trade at your own risk."
+10. ✅ WAJIB AI prompt menyertakan constraint: "Do not recommend position sizing or leverage."
+
+---
+
+📅 15. IMPLEMENTATION ORDER (SPRINT PLAN)
+
+AI coding agent wajib ikuti urutan ini — jangan lompat.
+
+Sprint 1: Backend Foundation (2-3 hari)
+
+1. backend-python/ scaffold: main.py, config.py, requirements.txt, .env.example
+2. Pydantic models: Signal, ScanRequest, AiVerdict, SignalEnvelope
+3. twelve_data_client.py + routes_tier.py + test manual dengan curl
+4. routes_market.py (/pairs, /scan stub) + routes_signal.py (in-memory store dulu)
+
+Sprint 2: Strategies & Confirmations (3-4 hari)
+
+5. strategies/base.py + 5 strategi dengan unit test (fixture CSV)
+6. confirmations/ — 4 filter dengan unit test
+7. risk/levels.py + scoring/confluence_score.py dengan unit test
+8. Wire up: /scan end-to-end pakai data fixture
+
+Sprint 3: AI Layer (1-2 hari)
+
+9. services/prompt_builder.py + ai_client.py + routes_ai.py
+10. Test dengan provider real (Groq free tier untuk dev)
+11. AI response parser dengan fallback robust
+
+Sprint 4: Android Foundation (2-3 hari)
+
+12. Android scaffold: Hilt, Retrofit, Room, Navigation
+13. data/ layer: BackendApi, AppDatabase, SettingsDataStore
+14. domain/ layer: 4 UseCase + model
+15. SettingsScreen — input API key + test connection
+
+Sprint 5: Android Core UI (3-4 hari)
+
+16. DashboardScreen + TradingViewWidget (WebView)
+17. PairScreen + StrategyScreen
+18. SignalsScreen + SignalDetailScreen
+19. AiVerdictCard di detail screen
+
+Sprint 6: Polish & Integration (2 hari)
+
+20. SignalScanWorker background polling (WorkManager, 15 menit)
+21. Offline cache behavior
+22. Error handling + loading states + empty states
+23. Integration test end-to-end
+24. DISCLAIMER.md + in-app disclaimer banner
+
+Sprint 7: Research Pine Scripts (1 hari — parallel)
+
+25. 5 file .pine di research-pine-v6/ untuk validasi visual di TradingView
+26. Dokumentasi di docs/STRATEGIES.md dengan gambar
+
+---
+
+✅ 16. ACCEPTANCE CRITERIA
+
+Project dinyatakan selesai jika:
+
+☐ pytest backend-python/ → ≥ 80% coverage, semua test hijau
+☐ ./gradlew android-app:test → hijau
+☐ Manual E2E: input API key → pilih pair+TF → scan → signal muncul → click AI → verdict tampil
+☐ Tier FREE: TF H1/H4/D1 disabled di PairScreen
+☐ No auto-execution endpoint ada di backend (grep POST /order = 0 hasil)
+☐ No BUY/SELL button di UI (grep "BUY" di Compose = 0 hasil, kecuali di komentar)
+☐ Semua signal JSON punya quant_score dan confluence breakdown
+☐ AI response parsed dengan fallback (test dengan mock error response)
+☐ DISCLAIMER.md ada & in-app banner tampil di first launch
+☐ README.md di root dengan setup instructions (backend + android)
+☐ .env.example lengkap dengan semua key yang dibutuhkan
+
+---
+
+💡 17. CODING STANDARDS
+
+Python
+
+· black + ruff + mypy — config di pyproject.toml
+· Type hints wajib di semua public function
+· Docstring Google-style untuk fungsi strategies/, confirmations/, risk/, scoring/
+· Exception handling: custom SignalFlowException + FastAPI exception handler
+· Logging: structlog atau logging dengan format JSON
+
+Kotlin
+
+· ktlint + detekt — config di build.gradle
+· Naming: PascalCase class, camelCase function/variable, SCREAMING_SNAKE const
+· Compose: 1 file = 1 screen + related composables
+· State: StateFlow<UiState> sealed class pattern (Loading | Success | Error | Empty)
+· DI: Hilt modules per layer (NetworkModule, DatabaseModule, RepositoryModule)
+
+---
+
+🧪 18. TESTING RULES
+
+Backend (pytest)
+
+· tests/fixtures/ — CSV fixtures per pair (minimal 100 candle)
+· Test strategy: golden fixture (hasil expected sudah di-verify manual di TradingView)
+· Test AI client dengan httpx.MockTransport (tidak hit real API di CI)
+· Test route dengan httpx.AsyncClient(app=app, base_url="http://test")
+
+Android (JUnit + Compose Test)
+
+· Unit test untuk ViewModel (kotlinx-coroutines-test)
+· Test UseCase dengan fake repository
+· Compose UI test hanya untuk critical flow: Settings → Scan → Detail → AI
+
+---
+
+🎬 19. INITIAL COMMAND (untuk AI coding agent)
+
+Ketika mulai, lakukan hal ini dulu sebelum coding:
+
+1. Baca ulang seluruh dokumen ini dan konfirmasi dengan output:
+   ```
+   ✅ Ready to build SignalFlow
+   - Sprint 1 dimulai: Backend Foundation
+   - Tidak akan membuat endpoint auto-execution
+   - Stack locked sesuai spec
+   ```
+2. Buat README.md di root dengan checklist sprint
+3. Buat struktur folder persis seperti diagram Section 3 dokumen asli
+4. Mulai Sprint 1 — jangan loncat ke Sprint 4 (Android) sebelum backend /scan bisa return signal via curl
+5. Setiap akhir sprint, update checklist di README.md dan minta review
+
+---
+
+🎯 20. DEFAULT PRESET (REKOMENDASI ANALIS)
+
+Kombinasi terbaik berdasarkan spec: FVG + Order Block di M15.
+
+Ketika user pertama kali buka StrategyScreen, preset default = core=FVG, confirmations=[RSI, ATR, OB], timeframe=M15. Tampilkan badge "⭐ Recommended Setup" di preset ini dengan tooltip:
+
+"FVG + Order Block di M15 = high-probability SMC setup. FVG memberi area entry presisi, Order Block memberi konfirmasi liquidity sweep."
+
+---
+
+Versi dokumen: 1.0
+Last updated: untuk SignalFlow MVP
+Owner: analis algoritma trading + AI coding agent
+
+⚠️ Reminder untuk AI coding agent: Kalau ragu antara "tambah fitur keren" vs "follow spec", selalu follow spec. Spec ini sudah production-ready. Fitur tambahan masuk backlog V2, bukan MVP.
+

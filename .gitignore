@@ -1,0 +1,28 @@
+# Secrets — jangan pernah di-commit
+.env
+*.env
+!.env.example
+**/.env
+**/*.keystore
+**/keystore.properties
+
+# Python
+__pycache__/
+*.pyc
+.pytest_cache/
+.venv/
+.coverage
+htmlcov/
+
+# Android / Gradle
+.gradle/
+**/build/
+local.properties
+*.apk
+*.aab
+.idea/
+*.iml
+
+# OS / editor
+.DS_Store
+*.swp
