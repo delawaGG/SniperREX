@@ -170,7 +170,27 @@ fun SettingsScreen(
                             )
                         }
                         Spacer(Modifier.height(10.dp))
-                        GhostButton("SCAN SEKARANG", accent = CyberLime) { viewModel.scanNow() }
+                        Row(
+                            Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.spacedBy(8.dp),
+                        ) {
+                            GhostButton(
+                                text = "SCAN SEKARANG",
+                                modifier = Modifier.weight(1f),
+                                accent = CyberLime,
+                            ) { viewModel.scanNow() }
+                            GhostButton(
+                                text = "TES NOTIFIKASI",
+                                modifier = Modifier.weight(1f),
+                                accent = CyberAqua,
+                            ) { viewModel.testNotification() }
+                        }
+                        Spacer(Modifier.height(6.dp))
+                        Text(
+                            "Notifikasi muncul saat scan menemukan setup. " +
+                                "Jika tidak ada, aktifkan izin notifikasi SniperRex di pengaturan Android.",
+                            color = TextSubtle, fontSize = 9.sp, fontFamily = FontFamily.Monospace,
+                        )
                     }
                 }
 

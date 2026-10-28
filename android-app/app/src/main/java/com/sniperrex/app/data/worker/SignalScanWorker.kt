@@ -33,9 +33,10 @@ class SignalScanWorker @AssistedInject constructor(
         val report = runCatching { repository.sweep() }.getOrNull()
             ?: return Result.success()
 
-        // Notifikasi dibatasi: satu ringkasan, bukan satu per signal, supaya
-        // tidak jadi spam saat sweep menemukan banyak setup sekaligus.
-        report.found.take(3).forEach { notifier.notifySignal(it) }
+        if (report.found.isNotEmpty()) {
+            // Satu ringkasan, bukan satu notifikasi per signal -> tidak spam.
+            notifier.notifySummary(report.found)
+        }
 
         return Result.success()
     }

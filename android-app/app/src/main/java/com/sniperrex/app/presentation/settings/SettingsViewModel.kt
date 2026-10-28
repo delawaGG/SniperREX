@@ -36,6 +36,7 @@ class SettingsViewModel @Inject constructor(
     private val saveCredentials: SaveCredentialsUseCase,
     private val testConnections: TestConnectionsUseCase,
     private val autoScan: AutoScanUseCase,
+    private val notifier: com.sniperrex.app.data.worker.ScanNotifier,
     observeCredentials: ObserveCredentialsUseCase,
 ) : ViewModel() {
 
@@ -105,6 +106,17 @@ class SettingsViewModel @Inject constructor(
             .onFailure {
                 _state.value = _state.value.copy(saveStatus = "Gagal mengatur jadwal: ${it.message}")
             }
+    }
+
+    fun testNotification() {
+        val ok = notifier.notifyTest()
+        _state.value = _state.value.copy(
+            saveStatus = if (ok) {
+                "Notifikasi tes dikirim — cek panel notifikasi"
+            } else {
+                "Notifikasi diblokir. Aktifkan izin notifikasi untuk SniperRex di pengaturan Android"
+            },
+        )
     }
 
     fun scanNow() {

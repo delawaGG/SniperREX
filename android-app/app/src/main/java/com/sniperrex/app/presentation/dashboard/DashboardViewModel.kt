@@ -58,6 +58,7 @@ class DashboardViewModel @Inject constructor(
     private val repo: SignalRepository,
     observeSignals: ObserveSignalsUseCase,
     private val autoScan: AutoScanUseCase,
+    private val notifier: com.sniperrex.app.data.worker.ScanNotifier,
 ) : ViewModel() {
 
     private val _chart = MutableStateFlow(ChartState())
@@ -166,6 +167,8 @@ class DashboardViewModel @Inject constructor(
                     newSignals = report?.found?.size ?: 0,
                 )
             }
+            // Scan manual juga memberi notifikasi, supaya polanya sama dengan autoscan.
+            report?.found?.takeIf { it.isNotEmpty() }?.let { notifier.notifySummary(it) }
             loadCandles()
         }
     }
